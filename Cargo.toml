@@ -4,3 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+thiserror = "2.0.20"
+wasmtime = { version = "48.0.1", default-features = false, features = [
+  "async",
+  "component-model",
+  "cranelift",
+  "runtime",
+  "std",
+] }
