@@ -127,6 +127,22 @@ async fn memory_growth_respects_limit() {
 }
 
 #[tokio::test]
+async fn memory_count_rejects_component() {
+  let runtime = Runtime::builder().memories(1).build().unwrap();
+  let bytes = wat::parse_file("tests/fixtures/memory-count.wat").unwrap();
+  let plugin = runtime.load_bytes(bytes).unwrap();
+  let linker = runtime.linker::<WasiState>().unwrap();
+  let mut store = runtime.store(WasiState::new()).unwrap();
+
+  assert!(
+    linker
+      .instantiate_async(&mut store, plugin.component())
+      .await
+      .is_err()
+  );
+}
+
+#[tokio::test]
 async fn table_growth_respects_limit() {
   let runtime = Runtime::builder().table_elements(1).build().unwrap();
   let bytes = wat::parse_file("tests/fixtures/table.wat").unwrap();
