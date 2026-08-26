@@ -105,6 +105,7 @@ impl<T: WasiStateView + 'static> Test<T> {
     R: ComponentNamedList + Lift + 'static,
   {
     let (mut store, instance) = self.instantiate(|_| {}).await?;
+
     let function = instance.get_typed_func::<(), R>(&mut store, export)?;
 
     function.call_async(&mut store, ()).await
@@ -117,8 +118,10 @@ impl<T: WasiStateView + 'static> Test<T> {
     assert_eq!(self.call::<R>(export).await.unwrap(), expected);
   }
 
-  async fn expect_instantiation_error(self) {
-    assert!(self.instantiate(|_| {}).await.is_err());
+  async fn expect_instantiation_error(self, expected: &str) {
+    let error = self.instantiate(|_| {}).await.map(|_| ()).unwrap_err();
+
+    assert_eq!(error.to_string(), expected);
   }
 
   async fn expect_trap(self, export: &str, expected: Trap) {
@@ -211,7 +214,9 @@ async fn memory_growth_respects_limit() {
 async fn memory_count_rejects_component() {
   Test::new("memory-count")
     .memories(1)
-    .expect_instantiation_error()
+    .expect_instantiation_error(
+      "resource limit exceeded: memory count too high at 2",
+    )
     .await;
 }
 

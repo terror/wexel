@@ -15,7 +15,8 @@ use {
 pub use {
   error::Error,
   plugin::Plugin,
-  runtime::{Runtime, RuntimeBuilder},
+  runtime::Runtime,
+  runtime_builder::RuntimeBuilder,
   wasi_state::{WasiState, WasiStateBuilder, WasiStateView},
   wasmtime_wasi::{WasiCtxView, WasiView},
 };
@@ -23,6 +24,7 @@ pub use {
 mod error;
 mod plugin;
 mod runtime;
+mod runtime_builder;
 mod wasi_state;
 
 pub type Result<T> = std::result::Result<T, Error>;
