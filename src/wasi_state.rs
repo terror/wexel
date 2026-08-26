@@ -96,6 +96,7 @@ impl WasiView for WasiState {
 mod tests {
   use {
     super::*,
+    wasmtime::component::Resource,
     wasmtime_wasi::{
       cli::WasiCliView,
       filesystem::WasiFilesystemView,
@@ -109,8 +110,8 @@ mod tests {
         filesystem::{
           preopens::Host as PreopensHost,
           types::{
-            DescriptorFlags, ErrorCode as FilesystemErrorCode, HostDescriptor,
-            OpenFlags, PathFlags,
+            Descriptor, DescriptorFlags, ErrorCode as FilesystemErrorCode,
+            HostDescriptor, OpenFlags, PathFlags,
           },
         },
         sockets::{
@@ -121,6 +122,15 @@ mod tests {
       sockets::WasiSocketsView,
     },
   };
+
+  #[track_caller]
+  fn preopen_descriptor(state: &mut WasiState) -> Resource<Descriptor> {
+    PreopensHost::get_directories(&mut state.filesystem())
+      .unwrap()
+      .pop()
+      .unwrap()
+      .0
+  }
 
   #[test]
   fn default_has_no_filesystem_preopens() {
@@ -205,12 +215,8 @@ mod tests {
       .read_dir(directory.path(), "/workspace")
       .unwrap()
       .build();
+    let descriptor = preopen_descriptor(&mut state);
     let mut filesystem = state.filesystem();
-    let descriptor = PreopensHost::get_directories(&mut filesystem)
-      .unwrap()
-      .pop()
-      .unwrap()
-      .0;
 
     HostDescriptor::open_at(
       &mut filesystem,
@@ -225,6 +231,34 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn read_directory_denies_traversal() {
+    let directory = tempfile::tempdir().unwrap();
+    let workspace = directory.path().join("workspace");
+    fs::create_dir(&workspace).unwrap();
+    fs::write(directory.path().join("outside"), "contents").unwrap();
+
+    let mut state = WasiState::builder()
+      .read_dir(&workspace, "/workspace")
+      .unwrap()
+      .build();
+    let descriptor = preopen_descriptor(&mut state);
+    let error = HostDescriptor::open_at(
+      &mut state.filesystem(),
+      descriptor,
+      PathFlags::empty(),
+      "../outside".into(),
+      OpenFlags::empty(),
+      DescriptorFlags::READ,
+    )
+    .await
+    .unwrap_err()
+    .downcast()
+    .unwrap();
+
+    assert_eq!(error, FilesystemErrorCode::NotPermitted);
+  }
+
+  #[tokio::test]
   async fn read_directory_denies_writing() {
     let directory = tempfile::tempdir().unwrap();
     fs::write(directory.path().join("file"), "contents").unwrap();
@@ -233,12 +267,8 @@ mod tests {
       .read_dir(directory.path(), "/workspace")
       .unwrap()
       .build();
+    let descriptor = preopen_descriptor(&mut state);
     let mut filesystem = state.filesystem();
-    let descriptor = PreopensHost::get_directories(&mut filesystem)
-      .unwrap()
-      .pop()
-      .unwrap()
-      .0;
     let error = HostDescriptor::open_at(
       &mut filesystem,
       descriptor,
