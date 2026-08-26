@@ -9,14 +9,14 @@ use {
     Config, Engine,
     component::{Component, Linker, ResourceTable},
   },
-  wasmtime_wasi::{WasiCtx, p2},
+  wasmtime_wasi::{WasiCtx, WasiCtxBuilder, p2},
 };
 
 pub use {
   error::Error,
   plugin::Plugin,
   runtime::Runtime,
-  wasi_state::WasiState,
+  wasi_state::{WasiState, WasiStateBuilder},
   wasmtime_wasi::{WasiCtxView, WasiView},
 };
 

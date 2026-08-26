@@ -9,20 +9,52 @@ pub struct WasiState {
   table: ResourceTable,
 }
 
+#[must_use]
+pub struct WasiStateBuilder {
+  context: WasiCtxBuilder,
+}
+
 impl WasiState {
+  /// Creates a builder for configuring guest capabilities.
+  pub fn builder() -> WasiStateBuilder {
+    WasiStateBuilder::default()
+  }
+
   /// Creates state using WASI's restricted defaults.
   #[must_use]
   pub fn new() -> Self {
-    Self {
-      context: WasiCtx::builder().build(),
+    Self::builder().build()
+  }
+}
+
+impl WasiStateBuilder {
+  /// Builds per-instance WASI state.
+  #[must_use]
+  pub fn build(mut self) -> WasiState {
+    WasiState {
+      context: self.context.build(),
       table: ResourceTable::new(),
     }
+  }
+
+  /// Exposes one environment variable to the guest.
+  pub fn env(mut self, key: impl AsRef<str>, value: impl AsRef<str>) -> Self {
+    self.context.env(key, value);
+    self
   }
 }
 
 impl Default for WasiState {
   fn default() -> Self {
     Self::new()
+  }
+}
+
+impl Default for WasiStateBuilder {
+  fn default() -> Self {
+    Self {
+      context: WasiCtx::builder(),
+    }
   }
 }
 
@@ -117,6 +149,19 @@ mod tests {
       TerminalStdoutHost::get_terminal_stdout(&mut cli)
         .unwrap()
         .is_none()
+    );
+  }
+
+  #[test]
+  fn environment_is_explicitly_configured() {
+    let mut state =
+      WasiState::builder().env("WEXEL_TEST", "configured").build();
+    let environment =
+      EnvironmentHost::get_environment(&mut state.cli()).unwrap();
+
+    assert_eq!(
+      environment,
+      vec![("WEXEL_TEST".into(), "configured".into())]
     );
   }
 }
