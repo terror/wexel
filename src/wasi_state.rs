@@ -42,6 +42,31 @@ impl WasiStateBuilder {
     self.context.env(key, value);
     self
   }
+
+  /// Exposes a host directory read-only at `guest_path`.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the host directory cannot be opened.
+  pub fn read_dir(
+    mut self,
+    host_path: impl AsRef<Path>,
+    guest_path: impl AsRef<str>,
+  ) -> Result<Self> {
+    let guest_path = guest_path.as_ref();
+    let host_path = host_path.as_ref();
+
+    self
+      .context
+      .preopened_dir(host_path, guest_path, FsPerms::ReadOnly)
+      .map_err(|source| Error::Directory {
+        guest_path: guest_path.to_owned(),
+        host_path: host_path.to_owned(),
+        source,
+      })?;
+
+    Ok(self)
+  }
 }
 
 impl Default for WasiState {
@@ -163,5 +188,38 @@ mod tests {
       environment,
       vec![("WEXEL_TEST".into(), "configured".into())]
     );
+  }
+
+  #[test]
+  fn read_directory_is_explicitly_configured() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut state = WasiState::builder()
+      .read_dir(directory.path(), "/workspace")
+      .unwrap()
+      .build();
+    let directories =
+      PreopensHost::get_directories(&mut state.filesystem()).unwrap();
+
+    assert_eq!(directories.len(), 1);
+    assert_eq!(directories[0].1, "/workspace");
+  }
+
+  #[test]
+  fn read_directory_reports_missing_host_path() {
+    let directory = tempfile::tempdir().unwrap();
+    let host_path = directory.path().join("missing");
+    let error = WasiState::builder()
+      .read_dir(&host_path, "/workspace")
+      .err()
+      .unwrap();
+
+    assert!(matches!(
+      error,
+      Error::Directory {
+        guest_path,
+        host_path: error_path,
+        ..
+      } if guest_path == "/workspace" && error_path == host_path
+    ));
   }
 }

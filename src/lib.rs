@@ -9,7 +9,7 @@ use {
     Config, Engine,
     component::{Component, Linker, ResourceTable},
   },
-  wasmtime_wasi::{WasiCtx, WasiCtxBuilder, p2},
+  wasmtime_wasi::{FsPerms, WasiCtx, WasiCtxBuilder, p2},
 };
 
 pub use {

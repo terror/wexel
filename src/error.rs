@@ -7,6 +7,16 @@ pub enum Error {
     #[source]
     source: wasmtime::Error,
   },
+  #[error(
+    "failed to mount directory `{}` at `{guest_path}`: {source}",
+    host_path.display()
+  )]
+  Directory {
+    guest_path: String,
+    host_path: PathBuf,
+    #[source]
+    source: wasmtime::Error,
+  },
   #[error("failed to read plugin `{}`: {source}", path.display())]
   Io {
     path: PathBuf,
