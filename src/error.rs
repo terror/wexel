@@ -18,4 +18,9 @@ pub enum Error {
     #[source]
     source: wasmtime::Error,
   },
+  #[error("failed to configure WASI linker: {source}")]
+  WasiLinker {
+    #[source]
+    source: wasmtime::Error,
+  },
 }

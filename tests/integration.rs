@@ -1,6 +1,6 @@
 use {
-  wasmtime::{Store, component::Linker},
-  wexel::Runtime,
+  wasmtime::Store,
+  wexel::{Runtime, WasiState},
 };
 
 mod bindings {
@@ -16,8 +16,8 @@ async fn invokes_typed_component() {
   let runtime = Runtime::new().unwrap();
   let bytes = wat::parse_file("tests/fixtures/answer.wat").unwrap();
   let plugin = runtime.load_bytes(bytes).unwrap();
-  let linker = Linker::new(runtime.engine());
-  let mut store = Store::new(runtime.engine(), ());
+  let linker = runtime.linker::<WasiState>().unwrap();
+  let mut store = Store::new(runtime.engine(), WasiState::new());
 
   let bindings = bindings::Plugin::instantiate_async(
     &mut store,

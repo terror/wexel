@@ -11,6 +11,19 @@ impl Runtime {
     &self.engine
   }
 
+  /// Creates an asynchronous component linker with WASI host interfaces.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the WASI interfaces cannot be added to the linker.
+  pub fn linker<T: WasiView>(&self) -> Result<Linker<T>> {
+    let mut linker = Linker::new(&self.engine);
+    p2::add_to_linker_async(&mut linker)
+      .map_err(|source| Error::WasiLinker { source })?;
+
+    Ok(linker)
+  }
+
   /// Loads and compiles a WebAssembly component from a local file.
   ///
   /// # Errors

@@ -7,13 +7,17 @@ use {
   },
   wasmtime::{
     Config, Engine,
-    component::{Component, ResourceTable},
+    component::{Component, Linker, ResourceTable},
   },
-  wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView},
+  wasmtime_wasi::{WasiCtx, p2},
 };
 
 pub use {
-  error::Error, plugin::Plugin, runtime::Runtime, wasi_state::WasiState,
+  error::Error,
+  plugin::Plugin,
+  runtime::Runtime,
+  wasi_state::WasiState,
+  wasmtime_wasi::{WasiCtxView, WasiView},
 };
 
 mod error;
