@@ -100,6 +100,7 @@ mod tests {
   #[test]
   fn clone_shares_engine() {
     let runtime = Runtime::new().unwrap();
+
     let clone = runtime.clone();
 
     assert!(Engine::same(runtime.engine(), clone.engine()));
@@ -108,8 +109,10 @@ mod tests {
   #[test]
   fn load_bytes_accepts_component() {
     let runtime = Runtime::new().unwrap();
-    let bytes = wat::parse_str("(component)").unwrap();
-    let plugin = runtime.load_bytes(bytes).unwrap();
+
+    let plugin = runtime
+      .load_bytes(wat::parse_str("(component)").unwrap())
+      .unwrap();
 
     assert!(Engine::same(runtime.engine(), plugin.component().engine()));
   }
@@ -117,20 +120,25 @@ mod tests {
   #[test]
   fn load_bytes_rejects_core_module() {
     let runtime = Runtime::new().unwrap();
-    let bytes = wat::parse_str("(module)").unwrap();
-    let error = runtime.load_bytes(bytes).unwrap_err();
 
-    assert!(matches!(error, Error::Component { .. }));
+    assert_matches!(
+      runtime
+        .load_bytes(wat::parse_str("(module)").unwrap())
+        .unwrap_err(),
+      Error::Component { .. }
+    );
   }
 
   #[test]
   fn load_reads_component_file() {
     let directory = tempfile::tempdir().unwrap();
+
     let path = directory.path().join("plugin.wasm");
-    let bytes = wat::parse_str("(component)").unwrap();
-    fs::write(&path, bytes).unwrap();
+
+    fs::write(&path, wat::parse_str("(component)").unwrap()).unwrap();
 
     let runtime = Runtime::new().unwrap();
+
     let plugin = runtime.load(path).unwrap();
 
     assert!(Engine::same(runtime.engine(), plugin.component().engine()));
@@ -139,16 +147,17 @@ mod tests {
   #[test]
   fn load_reports_unreadable_file() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("missing.wasm");
-    let runtime = Runtime::new().unwrap();
-    let error = runtime.load(&path).unwrap_err();
 
-    assert!(matches!(
-      error,
+    let path = directory.path().join("missing.wasm");
+
+    let runtime = Runtime::new().unwrap();
+
+    assert_matches!(
+      runtime.load(&path).unwrap_err(),
       Error::Io {
         path: error_path,
         ..
       } if error_path == path
-    ));
+    );
   }
 }

@@ -288,14 +288,14 @@ mod tests {
       .err()
       .unwrap();
 
-    assert!(matches!(
+    assert_matches!(
       error,
       Error::Directory {
         guest_path,
         host_path: error_path,
         ..
       } if guest_path == "/workspace" && error_path == host_path
-    ));
+    );
   }
 
   #[tokio::test]
