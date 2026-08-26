@@ -30,4 +30,5 @@ wasmtime = { version = "48.0.1", default-features = false, features = [
 
 [dev-dependencies]
 tempfile = "3.27.0"
+tokio = { version = "1.52.3", features = ["macros", "rt"] }
 wat = "1.258.0"

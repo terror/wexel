@@ -1,0 +1,5 @@
+package wexel:test;
+
+world plugin {
+  export answer: func() -> u32;
+}
