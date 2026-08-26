@@ -106,9 +106,15 @@ mod tests {
           terminal_stdin::Host as TerminalStdinHost,
           terminal_stdout::Host as TerminalStdoutHost,
         },
-        filesystem::preopens::Host as PreopensHost,
+        filesystem::{
+          preopens::Host as PreopensHost,
+          types::{
+            DescriptorFlags, ErrorCode as FilesystemErrorCode, HostDescriptor,
+            OpenFlags, PathFlags,
+          },
+        },
         sockets::{
-          network::{ErrorCode, IpAddressFamily},
+          network::{ErrorCode as NetworkErrorCode, IpAddressFamily},
           tcp_create_socket::Host as TcpCreateSocketHost,
         },
       },
@@ -136,7 +142,7 @@ mod tests {
     .downcast()
     .unwrap();
 
-    assert_eq!(error, ErrorCode::AccessDenied);
+    assert_eq!(error, NetworkErrorCode::AccessDenied);
   }
 
   #[test]
@@ -188,6 +194,65 @@ mod tests {
       environment,
       vec![("WEXEL_TEST".into(), "configured".into())]
     );
+  }
+
+  #[tokio::test]
+  async fn read_directory_allows_reading() {
+    let directory = tempfile::tempdir().unwrap();
+    fs::write(directory.path().join("file"), "contents").unwrap();
+
+    let mut state = WasiState::builder()
+      .read_dir(directory.path(), "/workspace")
+      .unwrap()
+      .build();
+    let mut filesystem = state.filesystem();
+    let descriptor = PreopensHost::get_directories(&mut filesystem)
+      .unwrap()
+      .pop()
+      .unwrap()
+      .0;
+
+    HostDescriptor::open_at(
+      &mut filesystem,
+      descriptor,
+      PathFlags::empty(),
+      "file".into(),
+      OpenFlags::empty(),
+      DescriptorFlags::READ,
+    )
+    .await
+    .unwrap();
+  }
+
+  #[tokio::test]
+  async fn read_directory_denies_writing() {
+    let directory = tempfile::tempdir().unwrap();
+    fs::write(directory.path().join("file"), "contents").unwrap();
+
+    let mut state = WasiState::builder()
+      .read_dir(directory.path(), "/workspace")
+      .unwrap()
+      .build();
+    let mut filesystem = state.filesystem();
+    let descriptor = PreopensHost::get_directories(&mut filesystem)
+      .unwrap()
+      .pop()
+      .unwrap()
+      .0;
+    let error = HostDescriptor::open_at(
+      &mut filesystem,
+      descriptor,
+      PathFlags::empty(),
+      "file".into(),
+      OpenFlags::empty(),
+      DescriptorFlags::WRITE,
+    )
+    .await
+    .unwrap_err()
+    .downcast()
+    .unwrap();
+
+    assert_eq!(error, FilesystemErrorCode::NotPermitted);
   }
 
   #[test]
