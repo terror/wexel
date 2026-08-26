@@ -34,6 +34,14 @@ mod host_bindings {
   });
 }
 
+mod memory_bindings {
+  wasmtime::component::bindgen!({
+    path: "tests/fixtures/memory.wit",
+    world: "plugin",
+    exports: { default: async },
+  });
+}
+
 impl host_bindings::PluginImports for HostState {
   fn host_answer(&mut self) -> impl Future<Output = u32> + Send {
     ready(self.answer)
@@ -89,6 +97,25 @@ async fn invokes_typed_component() {
   .unwrap();
 
   assert_eq!(bindings.call_answer(&mut store).await.unwrap(), 42);
+}
+
+#[tokio::test]
+async fn memory_growth_respects_limit() {
+  let runtime = Runtime::builder().memory_size(64 * 1024).build().unwrap();
+  let bytes = wat::parse_file("tests/fixtures/memory.wat").unwrap();
+  let plugin = runtime.load_bytes(bytes).unwrap();
+  let linker = runtime.linker::<WasiState>().unwrap();
+  let mut store = runtime.store(WasiState::new()).unwrap();
+
+  let bindings = memory_bindings::Plugin::instantiate_async(
+    &mut store,
+    plugin.component(),
+    &linker,
+  )
+  .await
+  .unwrap();
+
+  assert_eq!(bindings.call_grow(&mut store).await.unwrap(), -1);
 }
 
 #[tokio::test]
