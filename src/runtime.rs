@@ -1,6 +1,6 @@
-use wasmtime::{Config, Engine};
+use wasmtime::{Config, Engine, component::Component};
 
-use crate::{Error, Result};
+use crate::{Error, Plugin, Result};
 
 #[derive(Clone)]
 pub struct Runtime {
@@ -11,6 +11,19 @@ impl Runtime {
   #[must_use]
   pub fn engine(&self) -> &Engine {
     &self.engine
+  }
+
+  /// Compiles a WebAssembly component from binary data.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the data is not a valid WebAssembly component or
+  /// compilation fails.
+  pub fn load_bytes(&self, bytes: impl AsRef<[u8]>) -> Result<Plugin> {
+    let component = Component::from_binary(&self.engine, bytes.as_ref())
+      .map_err(|source| Error::Component { source })?;
+
+    Ok(Plugin::new(component))
   }
 
   /// Creates a WebAssembly runtime.
@@ -39,5 +52,23 @@ mod tests {
     let clone = runtime.clone();
 
     assert!(Engine::same(runtime.engine(), clone.engine()));
+  }
+
+  #[test]
+  fn load_bytes_accepts_component() {
+    let runtime = Runtime::new().unwrap();
+    let bytes = wat::parse_str("(component)").unwrap();
+    let plugin = runtime.load_bytes(bytes).unwrap();
+
+    assert!(Engine::same(runtime.engine(), plugin.component().engine()));
+  }
+
+  #[test]
+  fn load_bytes_rejects_core_module() {
+    let runtime = Runtime::new().unwrap();
+    let bytes = wat::parse_str("(module)").unwrap();
+    let error = runtime.load_bytes(bytes).unwrap_err();
+
+    assert!(matches!(error, Error::Component { .. }));
   }
 }
