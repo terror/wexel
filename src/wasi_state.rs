@@ -6,6 +6,7 @@ use super::*;
 /// or network destinations are inherited from the host.
 pub struct WasiState {
   context: WasiCtx,
+  limits: StoreLimits,
   table: ResourceTable,
 }
 
@@ -14,16 +15,29 @@ pub struct WasiStateBuilder {
   context: WasiCtxBuilder,
 }
 
+/// Provides access to Wexel's per-instance WASI state.
+pub trait WasiStateView: WasiView {
+  fn wasi_state(&mut self) -> &mut WasiState;
+}
+
 impl WasiState {
   /// Creates a builder for configuring guest capabilities.
   pub fn builder() -> WasiStateBuilder {
     WasiStateBuilder::default()
   }
 
+  pub(crate) fn limits(&mut self) -> &mut StoreLimits {
+    &mut self.limits
+  }
+
   /// Creates state using WASI's restricted defaults.
   #[must_use]
   pub fn new() -> Self {
     Self::builder().build()
+  }
+
+  pub(crate) fn set_limits(&mut self, limits: StoreLimits) {
+    self.limits = limits;
   }
 }
 
@@ -33,6 +47,7 @@ impl WasiStateBuilder {
   pub fn build(mut self) -> WasiState {
     WasiState {
       context: self.context.build(),
+      limits: StoreLimits::default(),
       table: ResourceTable::new(),
     }
   }
@@ -111,6 +126,12 @@ impl WasiView for WasiState {
       ctx: &mut self.context,
       table: &mut self.table,
     }
+  }
+}
+
+impl WasiStateView for WasiState {
+  fn wasi_state(&mut self) -> &mut WasiState {
+    self
   }
 }
 

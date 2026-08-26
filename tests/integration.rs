@@ -1,7 +1,7 @@
 use {
   std::future::{Future, ready},
   wasmtime::{Trap, component::HasSelf},
-  wexel::{Runtime, WasiCtxView, WasiState, WasiView},
+  wexel::{Runtime, WasiCtxView, WasiState, WasiStateView, WasiView},
 };
 
 struct HostState {
@@ -43,6 +43,12 @@ impl host_bindings::PluginImports for HostState {
 impl WasiView for HostState {
   fn ctx(&mut self) -> WasiCtxView<'_> {
     self.wasi.ctx()
+  }
+}
+
+impl WasiStateView for HostState {
+  fn wasi_state(&mut self) -> &mut WasiState {
+    &mut self.wasi
   }
 }
 
