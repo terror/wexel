@@ -3,6 +3,21 @@ name = "wexel"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["."]
+
+[workspace.lints.rust]
+unreachable_pub = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+arbitrary-source-item-ordering = "deny"
+pedantic = { level = "deny", priority = -1 }
+wildcard_imports = "allow"
+
+[lints]
+workspace = true
+
 [dependencies]
 thiserror = "2.0.20"
 wasmtime = { version = "48.0.1", default-features = false, features = [

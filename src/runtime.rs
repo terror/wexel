@@ -1,8 +1,4 @@
-use std::{fs, path::Path};
-
-use wasmtime::{Config, Engine, component::Component};
-
-use crate::{Error, Plugin, Result};
+use super::*;
 
 #[derive(Clone)]
 pub struct Runtime {

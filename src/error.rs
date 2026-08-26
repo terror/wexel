@@ -1,8 +1,6 @@
-use std::{io, path::PathBuf};
+use super::*;
 
-use thiserror::Error;
-
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
   #[error("failed to compile WebAssembly component: {source}")]
   Component {

@@ -1,4 +1,4 @@
-use wasmtime::component::Component;
+use super::*;
 
 #[derive(Clone, Debug)]
 pub struct Plugin {
