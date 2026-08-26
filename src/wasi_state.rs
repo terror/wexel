@@ -1,18 +1,9 @@
 use super::*;
 
-/// Per-instance WASI state using restricted defaults.
-///
-/// No arguments, environment variables, stdio streams, filesystem preopens,
-/// or network destinations are inherited from the host.
 pub struct WasiState {
   pub(crate) context: WasiCtx,
   pub(crate) limits: StoreLimits,
   pub(crate) table: ResourceTable,
-}
-
-/// Provides access to Wexel's per-instance WASI state.
-pub trait WasiStateView: WasiView {
-  fn wasi_state(&mut self) -> &mut WasiState;
 }
 
 impl WasiState {
@@ -84,6 +75,7 @@ mod tests {
   #[test]
   fn default_has_no_filesystem_preopens() {
     let mut state = WasiState::default();
+
     let directories =
       PreopensHost::get_directories(&mut state.filesystem()).unwrap();
 
@@ -93,6 +85,7 @@ mod tests {
   #[test]
   fn default_has_no_network_access() {
     let mut state = WasiState::default();
+
     let error = TcpCreateSocketHost::create_tcp_socket(
       &mut state.sockets(),
       IpAddressFamily::Ipv4,
@@ -107,22 +100,26 @@ mod tests {
   #[test]
   fn default_has_no_process_context() {
     let mut state = WasiState::default();
+
     let mut cli = state.cli();
 
     assert_eq!(
       EnvironmentHost::get_arguments(&mut cli).unwrap(),
       Vec::<String>::new()
     );
+
     assert_eq!(
       EnvironmentHost::get_environment(&mut cli).unwrap(),
       Vec::<(String, String)>::new()
     );
+
     assert_eq!(EnvironmentHost::initial_cwd(&mut cli).unwrap(), None);
   }
 
   #[test]
   fn default_has_no_terminal_stdio() {
     let mut state = WasiState::default();
+
     let mut cli = state.cli();
 
     assert!(
@@ -130,11 +127,13 @@ mod tests {
         .unwrap()
         .is_none()
     );
+
     assert!(
       TerminalStdinHost::get_terminal_stdin(&mut cli)
         .unwrap()
         .is_none()
     );
+
     assert!(
       TerminalStdoutHost::get_terminal_stdout(&mut cli)
         .unwrap()

@@ -1,5 +1,3 @@
-//! Sandboxed WebAssembly plugins for Rust.
-
 use {
   std::{
     fs, io,
@@ -17,8 +15,9 @@ pub use {
   plugin::Plugin,
   runtime::Runtime,
   runtime_builder::RuntimeBuilder,
-  wasi_state::{WasiState, WasiStateView},
+  wasi_state::WasiState,
   wasi_state_builder::WasiStateBuilder,
+  wasi_state_view::WasiStateView,
   wasmtime_wasi::{WasiCtxView, WasiView},
 };
 
@@ -28,5 +27,6 @@ mod runtime;
 mod runtime_builder;
 mod wasi_state;
 mod wasi_state_builder;
+mod wasi_state_view;
 
 pub type Result<T> = std::result::Result<T, Error>;
