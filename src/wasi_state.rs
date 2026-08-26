@@ -43,22 +43,18 @@ impl WasiStateBuilder {
     self
   }
 
-  /// Exposes a host directory read-only at `guest_path`.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error if the host directory cannot be opened.
-  pub fn read_dir(
+  fn mount_dir(
     mut self,
     host_path: impl AsRef<Path>,
     guest_path: impl AsRef<str>,
+    permissions: FsPerms,
   ) -> Result<Self> {
     let guest_path = guest_path.as_ref();
     let host_path = host_path.as_ref();
 
     self
       .context
-      .preopened_dir(host_path, guest_path, FsPerms::ReadOnly)
+      .preopened_dir(host_path, guest_path, permissions)
       .map_err(|source| Error::Directory {
         guest_path: guest_path.to_owned(),
         host_path: host_path.to_owned(),
@@ -66,6 +62,32 @@ impl WasiStateBuilder {
       })?;
 
     Ok(self)
+  }
+
+  /// Exposes a host directory read-only at `guest_path`.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the host directory cannot be opened.
+  pub fn read_dir(
+    self,
+    host_path: impl AsRef<Path>,
+    guest_path: impl AsRef<str>,
+  ) -> Result<Self> {
+    self.mount_dir(host_path, guest_path, FsPerms::ReadOnly)
+  }
+
+  /// Exposes a host directory read-write at `guest_path`.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the host directory cannot be opened.
+  pub fn read_write_dir(
+    self,
+    host_path: impl AsRef<Path>,
+    guest_path: impl AsRef<str>,
+  ) -> Result<Self> {
+    self.mount_dir(host_path, guest_path, FsPerms::ReadWrite)
   }
 }
 
@@ -347,5 +369,38 @@ mod tests {
         ..
       } if guest_path == "/workspace" && error_path == host_path
     ));
+  }
+
+  #[tokio::test]
+  async fn read_write_directory_allows_writing() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("file");
+    fs::write(&path, "contents").unwrap();
+
+    let mut state = WasiState::builder()
+      .read_write_dir(directory.path(), "/workspace")
+      .unwrap()
+      .build();
+    let descriptor = preopen_descriptor(&mut state);
+
+    {
+      let mut filesystem = state.filesystem();
+      let file = HostDescriptor::open_at(
+        &mut filesystem,
+        descriptor,
+        PathFlags::empty(),
+        "file".into(),
+        OpenFlags::empty(),
+        DescriptorFlags::WRITE,
+      )
+      .await
+      .unwrap();
+
+      HostDescriptor::write(&mut filesystem, file, b"updated!".to_vec(), 0)
+        .await
+        .unwrap();
+    }
+
+    assert_eq!(fs::read_to_string(path).unwrap(), "updated!");
   }
 }
