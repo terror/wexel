@@ -1,0 +1,6 @@
+package wexel:host-test;
+
+world plugin {
+  import host-answer: func() -> u32;
+  export answer: func() -> u32;
+}
