@@ -1,6 +1,6 @@
 use {
   std::future::{Future, ready},
-  wasmtime::component::HasSelf,
+  wasmtime::{Trap, component::HasSelf},
   wexel::{Runtime, WasiCtxView, WasiState, WasiView},
 };
 
@@ -12,6 +12,14 @@ struct HostState {
 mod bindings {
   wasmtime::component::bindgen!({
     path: "tests/fixtures/answer.wit",
+    world: "plugin",
+    exports: { default: async },
+  });
+}
+
+mod fuel_bindings {
+  wasmtime::component::bindgen!({
+    path: "tests/fixtures/fuel.wit",
     world: "plugin",
     exports: { default: async },
   });
@@ -36,6 +44,26 @@ impl WasiView for HostState {
   fn ctx(&mut self) -> WasiCtxView<'_> {
     self.wasi.ctx()
   }
+}
+
+#[tokio::test]
+async fn fuel_exhaustion_interrupts_component() {
+  let runtime = Runtime::builder().fuel(100_000).build().unwrap();
+  let bytes = wat::parse_file("tests/fixtures/fuel.wat").unwrap();
+  let plugin = runtime.load_bytes(bytes).unwrap();
+  let linker = runtime.linker::<WasiState>().unwrap();
+  let mut store = runtime.store(WasiState::new()).unwrap();
+
+  let bindings = fuel_bindings::Plugin::instantiate_async(
+    &mut store,
+    plugin.component(),
+    &linker,
+  )
+  .await
+  .unwrap();
+  let error = bindings.call_run(&mut store).await.unwrap_err();
+
+  assert_eq!(error.downcast::<Trap>().unwrap(), Trap::OutOfFuel);
 }
 
 #[tokio::test]
