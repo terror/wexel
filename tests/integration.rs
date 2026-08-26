@@ -17,6 +17,14 @@ mod bindings {
   });
 }
 
+mod environment_bindings {
+  wasmtime::component::bindgen!({
+    path: "tests/fixtures/environment.wit",
+    world: "plugin",
+    exports: { default: async },
+  });
+}
+
 mod fuel_bindings {
   wasmtime::component::bindgen!({
     path: "tests/fixtures/fuel.wit",
@@ -66,6 +74,29 @@ impl WasiStateView for HostState {
   fn wasi_state(&mut self) -> &mut WasiState {
     &mut self.wasi
   }
+}
+
+#[tokio::test]
+async fn environment_exposes_only_configured_values() {
+  let runtime = Runtime::new().unwrap();
+  let bytes = wat::parse_file("tests/fixtures/environment.wat").unwrap();
+  let plugin = runtime.load_bytes(bytes).unwrap();
+  let linker = runtime.linker::<WasiState>().unwrap();
+  let state = WasiState::builder().env("WEXEL_TEST", "configured").build();
+  let mut store = runtime.store(state).unwrap();
+
+  let bindings = environment_bindings::Plugin::instantiate_async(
+    &mut store,
+    plugin.component(),
+    &linker,
+  )
+  .await
+  .unwrap();
+
+  assert_eq!(
+    bindings.call_environment(&mut store).await.unwrap(),
+    vec![("WEXEL_TEST".into(), "configured".into())]
+  );
 }
 
 #[tokio::test]

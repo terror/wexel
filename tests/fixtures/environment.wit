@@ -1,0 +1,5 @@
+package wexel:environment-test;
+
+world plugin {
+  export environment: func() -> list<tuple<string, string>>;
+}
