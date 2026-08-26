@@ -1,11 +1,24 @@
 use super::*;
 
+const DEFAULT_FUEL: u64 = 10_000_000;
+
 #[derive(Clone)]
 pub struct Runtime {
   engine: Engine,
+  fuel: u64,
+}
+
+pub struct RuntimeBuilder {
+  fuel: u64,
 }
 
 impl Runtime {
+  /// Creates a runtime builder with secure defaults.
+  #[must_use]
+  pub fn builder() -> RuntimeBuilder {
+    RuntimeBuilder::default()
+  }
+
   #[must_use]
   pub fn engine(&self) -> &Engine {
     &self.engine
@@ -59,13 +72,55 @@ impl Runtime {
   ///
   /// Returns an error if the Wasmtime engine cannot be initialized.
   pub fn new() -> Result<Self> {
+    Self::builder().build()
+  }
+
+  /// Creates a store with this runtime's resource limits.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the store's fuel budget cannot be configured.
+  pub fn store<T>(&self, data: T) -> Result<Store<T>> {
+    let mut store = Store::new(&self.engine, data);
+    store
+      .set_fuel(self.fuel)
+      .map_err(|source| Error::Store { source })?;
+
+    Ok(store)
+  }
+}
+
+impl RuntimeBuilder {
+  /// Builds a WebAssembly runtime.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the Wasmtime engine cannot be initialized.
+  pub fn build(self) -> Result<Runtime> {
     let mut config = Config::new();
+    config.consume_fuel(true);
     config.wasm_component_model(true);
 
     let engine =
       Engine::new(&config).map_err(|source| Error::Runtime { source })?;
 
-    Ok(Self { engine })
+    Ok(Runtime {
+      engine,
+      fuel: self.fuel,
+    })
+  }
+
+  /// Sets the fuel available to each plugin store.
+  #[must_use]
+  pub fn fuel(mut self, fuel: u64) -> Self {
+    self.fuel = fuel;
+    self
+  }
+}
+
+impl Default for RuntimeBuilder {
+  fn default() -> Self {
+    Self { fuel: DEFAULT_FUEL }
   }
 }
 
@@ -126,5 +181,21 @@ mod tests {
         ..
       } if error_path == path
     ));
+  }
+
+  #[test]
+  fn store_uses_default_fuel_limit() {
+    let runtime = Runtime::new().unwrap();
+    let store = runtime.store(()).unwrap();
+
+    assert_eq!(store.get_fuel().unwrap(), DEFAULT_FUEL);
+  }
+
+  #[test]
+  fn store_uses_overridden_fuel_limit() {
+    let runtime = Runtime::builder().fuel(42).build().unwrap();
+    let store = runtime.store(()).unwrap();
+
+    assert_eq!(store.get_fuel().unwrap(), 42);
   }
 }

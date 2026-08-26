@@ -1,6 +1,6 @@
 use {
   std::future::{Future, ready},
-  wasmtime::{Store, component::HasSelf},
+  wasmtime::component::HasSelf,
   wexel::{Runtime, WasiCtxView, WasiState, WasiView},
 };
 
@@ -44,7 +44,7 @@ async fn invokes_typed_component() {
   let bytes = wat::parse_file("tests/fixtures/answer.wat").unwrap();
   let plugin = runtime.load_bytes(bytes).unwrap();
   let linker = runtime.linker::<WasiState>().unwrap();
-  let mut store = Store::new(runtime.engine(), WasiState::new());
+  let mut store = runtime.store(WasiState::new()).unwrap();
 
   let bindings = bindings::Plugin::instantiate_async(
     &mut store,
@@ -69,13 +69,12 @@ async fn typed_component_calls_host_function() {
   })
   .unwrap();
 
-  let mut store = Store::new(
-    runtime.engine(),
-    HostState {
+  let mut store = runtime
+    .store(HostState {
       answer: 42,
       wasi: WasiState::new(),
-    },
-  );
+    })
+    .unwrap();
 
   let bindings = host_bindings::Plugin::instantiate_async(
     &mut store,
@@ -94,7 +93,7 @@ async fn wasi_component_imports_are_linked() {
   let bytes = wat::parse_file("tests/fixtures/wasi.wat").unwrap();
   let plugin = runtime.load_bytes(bytes).unwrap();
   let linker = runtime.linker::<WasiState>().unwrap();
-  let mut store = Store::new(runtime.engine(), WasiState::new());
+  let mut store = runtime.store(WasiState::new()).unwrap();
 
   let bindings = bindings::Plugin::instantiate_async(
     &mut store,

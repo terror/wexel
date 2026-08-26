@@ -6,7 +6,7 @@ use {
     path::{Path, PathBuf},
   },
   wasmtime::{
-    Config, Engine,
+    Config, Engine, Store,
     component::{Component, Linker, ResourceTable},
   },
   wasmtime_wasi::{FsPerms, WasiCtx, WasiCtxBuilder, p2},
@@ -15,7 +15,7 @@ use {
 pub use {
   error::Error,
   plugin::Plugin,
-  runtime::Runtime,
+  runtime::{Runtime, RuntimeBuilder},
   wasi_state::{WasiState, WasiStateBuilder},
   wasmtime_wasi::{WasiCtxView, WasiView},
 };

@@ -28,6 +28,11 @@ pub enum Error {
     #[source]
     source: wasmtime::Error,
   },
+  #[error("failed to configure plugin store: {source}")]
+  Store {
+    #[source]
+    source: wasmtime::Error,
+  },
   #[error("failed to configure WASI linker: {source}")]
   WasiLinker {
     #[source]
