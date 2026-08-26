@@ -1,8 +1,11 @@
 use super::*;
 
 const DEFAULT_FUEL: u64 = 10_000_000;
+const DEFAULT_INSTANCES: usize = 100;
+const DEFAULT_MEMORIES: usize = 1;
 const DEFAULT_MEMORY_SIZE: usize = 64 * 1024 * 1024;
 const DEFAULT_TABLE_ELEMENTS: usize = 10_000;
+const DEFAULT_TABLES: usize = 1;
 
 #[derive(Clone)]
 pub struct Runtime {
@@ -13,8 +16,11 @@ pub struct Runtime {
 
 pub struct RuntimeBuilder {
   fuel: u64,
+  instances: usize,
+  memories: usize,
   memory_size: usize,
   table_elements: usize,
+  tables: usize,
 }
 
 impl Runtime {
@@ -118,8 +124,11 @@ impl RuntimeBuilder {
       engine,
       fuel: self.fuel,
       limits: StoreLimitsBuilder::new()
+        .instances(self.instances)
+        .memories(self.memories)
         .memory_size(self.memory_size)
         .table_elements(self.table_elements)
+        .tables(self.tables)
         .build(),
     })
   }
@@ -128,6 +137,20 @@ impl RuntimeBuilder {
   #[must_use]
   pub fn fuel(mut self, fuel: u64) -> Self {
     self.fuel = fuel;
+    self
+  }
+
+  /// Sets the maximum number of core instances in each plugin store.
+  #[must_use]
+  pub fn instances(mut self, instances: usize) -> Self {
+    self.instances = instances;
+    self
+  }
+
+  /// Sets the maximum number of linear memories in each plugin store.
+  #[must_use]
+  pub fn memories(mut self, memories: usize) -> Self {
+    self.memories = memories;
     self
   }
 
@@ -144,14 +167,24 @@ impl RuntimeBuilder {
     self.table_elements = table_elements;
     self
   }
+
+  /// Sets the maximum number of tables in each plugin store.
+  #[must_use]
+  pub fn tables(mut self, tables: usize) -> Self {
+    self.tables = tables;
+    self
+  }
 }
 
 impl Default for RuntimeBuilder {
   fn default() -> Self {
     Self {
       fuel: DEFAULT_FUEL,
+      instances: DEFAULT_INSTANCES,
+      memories: DEFAULT_MEMORIES,
       memory_size: DEFAULT_MEMORY_SIZE,
       table_elements: DEFAULT_TABLE_ELEMENTS,
+      tables: DEFAULT_TABLES,
     }
   }
 }
@@ -160,7 +193,9 @@ impl Default for RuntimeBuilder {
 mod tests {
   use {
     super::*,
-    wasmtime::{Memory, MemoryType, Ref, RefType, Table, TableType},
+    wasmtime::{
+      Instance, Memory, MemoryType, Module, Ref, RefType, Table, TableType,
+    },
   };
 
   #[test]
@@ -227,6 +262,28 @@ mod tests {
   }
 
   #[test]
+  fn store_uses_overridden_instance_limit() {
+    let runtime = Runtime::builder().instances(1).build().unwrap();
+    let bytes = wat::parse_str("(module)").unwrap();
+    let module = Module::new(runtime.engine(), bytes).unwrap();
+    let mut store = runtime.store(WasiState::new()).unwrap();
+
+    let _instance = Instance::new(&mut store, &module, &[]).unwrap();
+    assert!(Instance::new(&mut store, &module, &[]).is_err());
+  }
+
+  #[test]
+  fn store_uses_overridden_memory_limit() {
+    let runtime = Runtime::builder().memories(1).build().unwrap();
+    let bytes = wat::parse_str("(module (memory 1))").unwrap();
+    let module = Module::new(runtime.engine(), bytes).unwrap();
+    let mut store = runtime.store(WasiState::new()).unwrap();
+
+    let _instance = Instance::new(&mut store, &module, &[]).unwrap();
+    assert!(Instance::new(&mut store, &module, &[]).is_err());
+  }
+
+  #[test]
   fn store_uses_overridden_fuel_limit() {
     let runtime = Runtime::builder().fuel(42).build().unwrap();
     let store = runtime.store(WasiState::new()).unwrap();
@@ -262,5 +319,16 @@ mod tests {
       )
       .is_err()
     );
+  }
+
+  #[test]
+  fn store_uses_overridden_table_limit() {
+    let runtime = Runtime::builder().tables(1).build().unwrap();
+    let bytes = wat::parse_str("(module (table 1 funcref))").unwrap();
+    let module = Module::new(runtime.engine(), bytes).unwrap();
+    let mut store = runtime.store(WasiState::new()).unwrap();
+
+    let _instance = Instance::new(&mut store, &module, &[]).unwrap();
+    assert!(Instance::new(&mut store, &module, &[]).is_err());
   }
 }
