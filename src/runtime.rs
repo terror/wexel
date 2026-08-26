@@ -2,6 +2,7 @@ use super::*;
 
 const DEFAULT_FUEL: u64 = 10_000_000;
 const DEFAULT_MEMORY_SIZE: usize = 64 * 1024 * 1024;
+const DEFAULT_TABLE_ELEMENTS: usize = 10_000;
 
 #[derive(Clone)]
 pub struct Runtime {
@@ -13,6 +14,7 @@ pub struct Runtime {
 pub struct RuntimeBuilder {
   fuel: u64,
   memory_size: usize,
+  table_elements: usize,
 }
 
 impl Runtime {
@@ -117,6 +119,7 @@ impl RuntimeBuilder {
       fuel: self.fuel,
       limits: StoreLimitsBuilder::new()
         .memory_size(self.memory_size)
+        .table_elements(self.table_elements)
         .build(),
     })
   }
@@ -134,6 +137,13 @@ impl RuntimeBuilder {
     self.memory_size = memory_size;
     self
   }
+
+  /// Sets the maximum number of elements in each guest table.
+  #[must_use]
+  pub fn table_elements(mut self, table_elements: usize) -> Self {
+    self.table_elements = table_elements;
+    self
+  }
 }
 
 impl Default for RuntimeBuilder {
@@ -141,6 +151,7 @@ impl Default for RuntimeBuilder {
     Self {
       fuel: DEFAULT_FUEL,
       memory_size: DEFAULT_MEMORY_SIZE,
+      table_elements: DEFAULT_TABLE_ELEMENTS,
     }
   }
 }
@@ -149,7 +160,7 @@ impl Default for RuntimeBuilder {
 mod tests {
   use {
     super::*,
-    wasmtime::{Memory, MemoryType},
+    wasmtime::{Memory, MemoryType, Ref, RefType, Table, TableType},
   };
 
   #[test]
@@ -230,5 +241,26 @@ mod tests {
 
     Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
     assert!(Memory::new(&mut store, MemoryType::new(2, None)).is_err());
+  }
+
+  #[test]
+  fn store_uses_overridden_table_element_limit() {
+    let runtime = Runtime::builder().table_elements(1).build().unwrap();
+    let mut store = runtime.store(WasiState::new()).unwrap();
+
+    Table::new(
+      &mut store,
+      TableType::new(RefType::FUNCREF, 1, None),
+      Ref::Func(None),
+    )
+    .unwrap();
+    assert!(
+      Table::new(
+        &mut store,
+        TableType::new(RefType::FUNCREF, 2, None),
+        Ref::Func(None),
+      )
+      .is_err()
+    );
   }
 }
