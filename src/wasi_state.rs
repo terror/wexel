@@ -230,6 +230,37 @@ mod tests {
     .unwrap();
   }
 
+  #[cfg(unix)]
+  #[tokio::test]
+  async fn read_directory_denies_symlink_escape() {
+    let directory = tempfile::tempdir().unwrap();
+    let workspace = directory.path().join("workspace");
+    let outside = directory.path().join("outside");
+    fs::create_dir(&workspace).unwrap();
+    fs::write(&outside, "contents").unwrap();
+    std::os::unix::fs::symlink(&outside, workspace.join("link")).unwrap();
+
+    let mut state = WasiState::builder()
+      .read_dir(&workspace, "/workspace")
+      .unwrap()
+      .build();
+    let descriptor = preopen_descriptor(&mut state);
+    let error = HostDescriptor::open_at(
+      &mut state.filesystem(),
+      descriptor,
+      PathFlags::SYMLINK_FOLLOW,
+      "link".into(),
+      OpenFlags::empty(),
+      DescriptorFlags::READ,
+    )
+    .await
+    .unwrap_err()
+    .downcast()
+    .unwrap();
+
+    assert_eq!(error, FilesystemErrorCode::NotPermitted);
+  }
+
   #[tokio::test]
   async fn read_directory_denies_traversal() {
     let directory = tempfile::tempdir().unwrap();
