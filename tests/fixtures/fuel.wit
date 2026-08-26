@@ -1,5 +1,0 @@
-package wexel:fuel-test;
-
-world plugin {
-  export run: func();
-}

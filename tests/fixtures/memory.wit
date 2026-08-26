@@ -1,5 +1,0 @@
-package wexel:memory-test;
-
-world plugin {
-  export grow: func() -> s32;
-}

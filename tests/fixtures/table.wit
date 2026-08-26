@@ -1,5 +1,0 @@
-package wexel:table-test;
-
-world plugin {
-  export grow: func() -> s32;
-}
