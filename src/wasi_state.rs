@@ -6,12 +6,18 @@ pub struct WasiState {
   pub(crate) table: ResourceTable,
 }
 
+/// Per-instance WASI state.
+///
+/// [`Permissions`] is the only source of guest capabilities. Receive a
+/// permission-configured state through [`Plugin::instantiate_with`], or use
+/// [`WasiState::new`] for a restricted state with no capabilities.
+
 #[bon::bon]
 impl WasiState {
   #[builder(
     builder_type(
       name = WasiStateBuilder,
-      vis = "pub",
+      vis = "pub(crate)",
       doc {
         /// Configures guest capabilities and builds per-instance WASI state.
       }
@@ -22,7 +28,7 @@ impl WasiState {
         /// Builds per-instance WASI state.
       }
     ),
-    start_fn(name = builder, vis = "pub")
+    start_fn(name = builder, vis = "pub(crate)")
   )]
   fn assemble(
     #[builder(field = WasiCtx::builder())] context: WasiCtxBuilder,
@@ -99,7 +105,11 @@ impl WasiStateView for WasiState {
 
 impl<S: wasi_state_builder::State> WasiStateBuilder<S> {
   /// Exposes one environment variable to the guest.
-  pub fn env(mut self, key: impl AsRef<str>, value: impl AsRef<str>) -> Self {
+  pub(crate) fn env(
+    mut self,
+    key: impl AsRef<str>,
+    value: impl AsRef<str>,
+  ) -> Self {
     self.context.env(key, value);
     self
   }
@@ -131,7 +141,7 @@ impl<S: wasi_state_builder::State> WasiStateBuilder<S> {
   /// # Errors
   ///
   /// Returns an error if the host directory cannot be opened.
-  pub fn read_dir(
+  pub(crate) fn read_dir(
     self,
     host_path: impl AsRef<Path>,
     guest_path: impl AsRef<str>,
@@ -144,7 +154,7 @@ impl<S: wasi_state_builder::State> WasiStateBuilder<S> {
   /// # Errors
   ///
   /// Returns an error if the host directory cannot be opened.
-  pub fn read_write_dir(
+  pub(crate) fn read_write_dir(
     self,
     host_path: impl AsRef<Path>,
     guest_path: impl AsRef<str>,
@@ -155,7 +165,7 @@ impl<S: wasi_state_builder::State> WasiStateBuilder<S> {
   /// Grants outbound TCP access to one exact IP address and port.
   ///
   /// This does not enable DNS, UDP, inbound connections, or listening sockets.
-  pub fn tcp(mut self, address: impl Into<SocketAddr>) -> Self {
+  pub(crate) fn tcp(mut self, address: impl Into<SocketAddr>) -> Self {
     self.tcp_addresses.push(address.into());
     self
   }
@@ -241,9 +251,11 @@ mod tests {
   async fn listening_denied_for(family: IpAddressFamily, wildcard: &str) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
 
-    let mut state = WasiState::builder()
+    let mut state = Permissions::builder()
       .tcp(listener.local_addr().unwrap())
-      .build();
+      .build()
+      .wasi_state()
+      .unwrap();
 
     let (network, socket) = tcp_resources(&mut state, family);
 
@@ -278,8 +290,11 @@ mod tests {
 
   #[test]
   fn environment_is_explicitly_configured() {
-    let mut state =
-      WasiState::builder().env("WEXEL_TEST", "configured").build();
+    let mut state = Permissions::builder()
+      .env("WEXEL_TEST", "configured")
+      .build()
+      .wasi_state()
+      .unwrap();
 
     let environment =
       EnvironmentHost::get_environment(&mut state.cli()).unwrap();
@@ -296,10 +311,11 @@ mod tests {
 
     fs::write(directory.path().join("file"), "contents").unwrap();
 
-    let mut state = WasiState::builder()
+    let mut state = Permissions::builder()
       .read_dir(directory.path(), "/workspace")
-      .unwrap()
-      .build();
+      .build()
+      .wasi_state()
+      .unwrap();
 
     let descriptor = PreopensHost::get_directories(&mut state.filesystem())
       .unwrap()
@@ -333,10 +349,11 @@ mod tests {
     fs::write(&outside, "contents").unwrap();
     std::os::unix::fs::symlink(&outside, workspace.join("link")).unwrap();
 
-    let mut state = WasiState::builder()
+    let mut state = Permissions::builder()
       .read_dir(&workspace, "/workspace")
-      .unwrap()
-      .build();
+      .build()
+      .wasi_state()
+      .unwrap();
 
     let descriptor = PreopensHost::get_directories(&mut state.filesystem())
       .unwrap()
@@ -369,10 +386,11 @@ mod tests {
     fs::create_dir(&workspace).unwrap();
     fs::write(directory.path().join("outside"), "contents").unwrap();
 
-    let mut state = WasiState::builder()
+    let mut state = Permissions::builder()
       .read_dir(&workspace, "/workspace")
-      .unwrap()
-      .build();
+      .build()
+      .wasi_state()
+      .unwrap();
 
     let descriptor = PreopensHost::get_directories(&mut state.filesystem())
       .unwrap()
@@ -402,10 +420,11 @@ mod tests {
 
     fs::write(directory.path().join("file"), "contents").unwrap();
 
-    let mut state = WasiState::builder()
+    let mut state = Permissions::builder()
       .read_dir(directory.path(), "/workspace")
-      .unwrap()
-      .build();
+      .build()
+      .wasi_state()
+      .unwrap();
 
     let descriptor = PreopensHost::get_directories(&mut state.filesystem())
       .unwrap()
@@ -435,10 +454,11 @@ mod tests {
   fn read_directory_is_explicitly_configured() {
     let directory = tempfile::tempdir().unwrap();
 
-    let mut state = WasiState::builder()
+    let mut state = Permissions::builder()
       .read_dir(directory.path(), "/workspace")
-      .unwrap()
-      .build();
+      .build()
+      .wasi_state()
+      .unwrap();
 
     let directories =
       PreopensHost::get_directories(&mut state.filesystem()).unwrap();
@@ -460,8 +480,10 @@ mod tests {
 
     let host_path = directory.path().join("missing");
 
-    let error = WasiState::builder()
+    let error = Permissions::builder()
       .read_dir(&host_path, "/workspace")
+      .build()
+      .wasi_state()
       .err()
       .unwrap();
 
@@ -483,10 +505,11 @@ mod tests {
 
     fs::write(&path, "contents").unwrap();
 
-    let mut state = WasiState::builder()
+    let mut state = Permissions::builder()
       .read_write_dir(directory.path(), "/workspace")
-      .unwrap()
-      .build();
+      .build()
+      .wasi_state()
+      .unwrap();
 
     let descriptor = PreopensHost::get_directories(&mut state.filesystem())
       .unwrap()
@@ -566,9 +589,11 @@ mod tests {
   async fn tcp_address_denies_explicit_bind() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
 
-    let mut state = WasiState::builder()
+    let mut state = Permissions::builder()
       .tcp(listener.local_addr().unwrap())
-      .build();
+      .build()
+      .wasi_state()
+      .unwrap();
 
     let (network, socket) = tcp_resources(&mut state, IpAddressFamily::Ipv4);
 
@@ -598,9 +623,11 @@ mod tests {
     let allowed = TcpListener::bind("127.0.0.1:0").unwrap();
     let denied = TcpListener::bind("127.0.0.1:0").unwrap();
 
-    let mut state = WasiState::builder()
+    let mut state = Permissions::builder()
       .tcp(allowed.local_addr().unwrap())
-      .build();
+      .build()
+      .wasi_state()
+      .unwrap();
 
     let (network, socket) = tcp_resources(&mut state, IpAddressFamily::Ipv4);
 
@@ -621,9 +648,11 @@ mod tests {
   async fn tcp_address_does_not_enable_udp() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
 
-    let mut state = WasiState::builder()
+    let mut state = Permissions::builder()
       .tcp(listener.local_addr().unwrap())
-      .build();
+      .build()
+      .wasi_state()
+      .unwrap();
 
     let error = UdpCreateSocketHost::create_udp_socket(
       &mut state.sockets(),
@@ -641,9 +670,11 @@ mod tests {
   fn tcp_address_does_not_enable_name_lookup() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
 
-    let mut state = WasiState::builder()
+    let mut state = Permissions::builder()
       .tcp(listener.local_addr().unwrap())
-      .build();
+      .build()
+      .wasi_state()
+      .unwrap();
 
     let network =
       InstanceNetworkHost::instance_network(&mut state.sockets()).unwrap();

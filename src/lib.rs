@@ -26,7 +26,7 @@ pub use {
   plugin::Plugin,
   runtime::{Runtime, RuntimeBuilder},
   runtime_limits::{RuntimeLimits, RuntimeLimitsBuilder},
-  wasi_state::{WasiState, WasiStateBuilder},
+  wasi_state::WasiState,
   wasi_state_view::WasiStateView,
   wasmtime_wasi::{WasiCtxView, WasiView},
 };
