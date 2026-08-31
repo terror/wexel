@@ -7,6 +7,7 @@ use {
     thread,
     time::Duration,
   },
+  tokio::time::Instant,
   wasmtime::{
     Config, Engine, Store, StoreLimits, StoreLimitsBuilder, Trap,
     component::{

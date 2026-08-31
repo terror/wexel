@@ -74,7 +74,7 @@ impl<T: WasiStateView + 'static> Instance<T> {
     }
 
     let timeout = limits.timeout;
-    let started = tokio::time::Instant::now();
+    let started = Instant::now();
 
     let state = state_factory(permissions.wasi_state()?);
     let mut linker = plugin.runtime.linker::<T>()?;
@@ -181,7 +181,7 @@ impl<T: 'static> Instance<T> {
     self.store.epoch_deadline_async_yield_and_update(1);
     self.store.set_epoch_deadline(1);
 
-    let started = tokio::time::Instant::now();
+    let started = Instant::now();
 
     if let Ok(result) =
       tokio::time::timeout(timeout, call(&mut self.store, &self.raw)).await
