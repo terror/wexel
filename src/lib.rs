@@ -1,20 +1,29 @@
 use {
   std::{
     fs, io,
+    ops::AsyncFnOnce,
     path::{Path, PathBuf},
+    thread,
+    time::Duration,
   },
   wasmtime::{
-    Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
-    component::{Component, Linker, ResourceTable},
+    Config, Engine, Store, StoreLimits, StoreLimitsBuilder, Trap,
+    component::{
+      Component, Instance as WasmtimeInstance, Linker, ResourceTable,
+    },
   },
   wasmtime_wasi::{FsPerms, WasiCtx, WasiCtxBuilder, p2},
 };
 
 pub use {
   error::Error,
+  instance::Instance,
+  instance_builder::InstanceBuilder,
+  permissions::{Permissions, PermissionsBuilder},
   plugin::Plugin,
   runtime::Runtime,
   runtime_builder::RuntimeBuilder,
+  runtime_limits::{RuntimeLimits, RuntimeLimitsBuilder},
   wasi_state::WasiState,
   wasi_state_builder::WasiStateBuilder,
   wasi_state_view::WasiStateView,
@@ -36,9 +45,13 @@ macro_rules! assert_matches {
 }
 
 mod error;
+mod instance;
+mod instance_builder;
+mod permissions;
 mod plugin;
 mod runtime;
 mod runtime_builder;
+mod runtime_limits;
 mod wasi_state;
 mod wasi_state_builder;
 mod wasi_state_view;

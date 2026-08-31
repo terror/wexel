@@ -1,25 +1,38 @@
 use super::*;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Runtime {
   pub(crate) engine: Engine,
-  pub(crate) fuel: u64,
-  pub(crate) limits: StoreLimits,
+  pub(crate) limits: RuntimeLimits,
 }
 
 impl Runtime {
+  const EPOCH_INTERVAL: Duration = Duration::from_millis(10);
+
   /// Creates a runtime builder with secure defaults.
   #[must_use]
   pub fn builder() -> RuntimeBuilder {
     RuntimeBuilder::default()
   }
 
+  /// Returns the underlying Wasmtime engine.
+  ///
+  /// Stores created directly with this engine bypass Wexel's managed limits
+  /// and invocation deadlines.
   #[must_use]
   pub fn engine(&self) -> &Engine {
     &self.engine
   }
 
-  /// Creates an asynchronous component linker with WASI host interfaces.
+  /// Returns the default limits and hard ceilings for plugin instances.
+  #[must_use]
+  pub fn limits(&self) -> RuntimeLimits {
+    self.limits
+  }
+
+  /// Creates a raw asynchronous component linker with WASI host interfaces.
+  ///
+  /// Prefer [`Plugin::instantiate`] for managed plugin execution.
   ///
   /// # Errors
   ///
@@ -56,6 +69,7 @@ impl Runtime {
   /// compilation fails.
   pub fn load_bytes(&self, bytes: impl AsRef<[u8]>) -> Result<Plugin> {
     Ok(Plugin::new(
+      self.clone(),
       Component::from_binary(&self.engine, bytes.as_ref())
         .map_err(|source| Error::Component { source })?,
     ))
@@ -70,24 +84,58 @@ impl Runtime {
     Self::builder().build()
   }
 
-  /// Creates a store with this runtime's resource limits.
+  pub(crate) fn start_epoch_ticker(engine: &Engine) -> Result<()> {
+    let engine = engine.weak();
+
+    thread::Builder::new()
+      .name("wexel-epoch".into())
+      .spawn(move || {
+        loop {
+          thread::sleep(Self::EPOCH_INTERVAL);
+
+          let Some(engine) = engine.upgrade() else {
+            break;
+          };
+
+          engine.increment_epoch();
+        }
+      })
+      .map_err(|source| Error::EpochTicker { source })?;
+
+    Ok(())
+  }
+
+  /// Creates a raw store with this runtime's resource limits.
+  ///
+  /// Calls made directly through this store bypass managed invocation
+  /// deadlines and structured error mapping. Prefer [`Plugin::instantiate`].
   ///
   /// # Errors
   ///
   /// Returns an error if the store's fuel budget cannot be configured.
   pub fn store<T: WasiStateView>(&self, data: T) -> Result<Store<T>> {
+    self.store_with_limits(data, self.limits)
+  }
+
+  pub(crate) fn store_with_limits<T: WasiStateView>(
+    &self,
+    data: T,
+    limits: RuntimeLimits,
+  ) -> Result<Store<T>> {
     let mut store = Store::new(&self.engine, data);
 
     store
       .data_mut()
       .wasi_state()
-      .set_limits(self.limits.clone());
+      .set_limits(limits.store_limits());
 
     store.limiter(|data| data.wasi_state().limits());
 
     store
-      .set_fuel(self.fuel)
+      .set_fuel(limits.fuel)
       .map_err(|source| Error::Store { source })?;
+
+    store.set_epoch_deadline(u64::MAX / 2);
 
     Ok(store)
   }

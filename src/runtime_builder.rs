@@ -1,22 +1,11 @@
 use super::*;
 
+#[derive(Default)]
 pub struct RuntimeBuilder {
-  fuel: u64,
-  instances: usize,
-  memories: usize,
-  memory_size: usize,
-  table_elements: usize,
-  tables: usize,
+  limits: RuntimeLimits,
 }
 
 impl RuntimeBuilder {
-  const DEFAULT_FUEL: u64 = 10_000_000;
-  const DEFAULT_INSTANCES: usize = 100;
-  const DEFAULT_MEMORIES: usize = 1;
-  const DEFAULT_MEMORY_SIZE: usize = 64 * 1024 * 1024;
-  const DEFAULT_TABLES: usize = 1;
-  const DEFAULT_TABLE_ELEMENTS: usize = 10_000;
-
   /// Builds a WebAssembly runtime.
   ///
   /// # Errors
@@ -24,79 +13,77 @@ impl RuntimeBuilder {
   /// Returns an error if the Wasmtime engine cannot be initialized.
   pub fn build(self) -> Result<Runtime> {
     let mut config = Config::new();
-    config.consume_fuel(true).wasm_component_model(true);
+
+    config
+      .consume_fuel(true)
+      .epoch_interruption(true)
+      .wasm_component_model(true);
 
     let engine =
       Engine::new(&config).map_err(|source| Error::Runtime { source })?;
 
-    let limits = StoreLimitsBuilder::new()
-      .instances(self.instances)
-      .memories(self.memories)
-      .memory_size(self.memory_size)
-      .table_elements(self.table_elements)
-      .tables(self.tables)
-      .build();
+    Runtime::start_epoch_ticker(&engine)?;
 
     Ok(Runtime {
       engine,
-      fuel: self.fuel,
-      limits,
+      limits: self.limits,
     })
   }
 
   /// Sets the fuel available to each plugin store.
   #[must_use]
   pub fn fuel(mut self, fuel: u64) -> Self {
-    self.fuel = fuel;
+    self.limits.fuel = fuel;
     self
   }
 
   /// Sets the maximum number of core instances in each plugin store.
   #[must_use]
   pub fn instances(mut self, instances: usize) -> Self {
-    self.instances = instances;
+    self.limits.instances = instances;
+    self
+  }
+
+  /// Sets the default limits and hard ceilings for plugin instances.
+  #[must_use]
+  pub fn limits(mut self, limits: RuntimeLimits) -> Self {
+    self.limits = limits;
     self
   }
 
   /// Sets the maximum number of linear memories in each plugin store.
   #[must_use]
   pub fn memories(mut self, memories: usize) -> Self {
-    self.memories = memories;
+    self.limits.memories = memories;
     self
   }
 
   /// Sets the maximum size in bytes of each guest linear memory.
   #[must_use]
   pub fn memory_size(mut self, memory_size: usize) -> Self {
-    self.memory_size = memory_size;
+    self.limits.memory_size = memory_size;
     self
   }
 
   /// Sets the maximum number of elements in each guest table.
   #[must_use]
   pub fn table_elements(mut self, table_elements: usize) -> Self {
-    self.table_elements = table_elements;
+    self.limits.table_elements = table_elements;
     self
   }
 
   /// Sets the maximum number of tables in each plugin store.
   #[must_use]
   pub fn tables(mut self, tables: usize) -> Self {
-    self.tables = tables;
+    self.limits.tables = tables;
     self
   }
-}
 
-impl Default for RuntimeBuilder {
-  fn default() -> Self {
-    Self {
-      fuel: Self::DEFAULT_FUEL,
-      instances: Self::DEFAULT_INSTANCES,
-      memories: Self::DEFAULT_MEMORIES,
-      memory_size: Self::DEFAULT_MEMORY_SIZE,
-      table_elements: Self::DEFAULT_TABLE_ELEMENTS,
-      tables: Self::DEFAULT_TABLES,
-    }
+  /// Sets the default wall-clock timeout and ceiling for plugin operations.
+  #[must_use]
+  pub fn timeout(mut self, timeout: Duration) -> Self {
+    self.limits.timeout = timeout;
+    self
   }
 }
 
@@ -115,7 +102,7 @@ mod tests {
 
     let store = runtime.store(WasiState::new()).unwrap();
 
-    assert_eq!(store.get_fuel().unwrap(), RuntimeBuilder::DEFAULT_FUEL);
+    assert_eq!(store.get_fuel().unwrap(), RuntimeLimits::default().fuel());
   }
 
   #[test]
