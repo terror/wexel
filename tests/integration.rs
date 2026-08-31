@@ -1,7 +1,7 @@
 use {
   std::{
     future::{Future, ready},
-    net::TcpListener,
+    net::{SocketAddr, TcpListener},
     pin::Pin,
     sync::{
       Arc,
@@ -10,10 +10,15 @@ use {
     task::{Context, Poll},
     time::{Duration, Instant},
   },
-  wasmtime::{Trap, component::HasSelf},
+  wasmtime::{
+    Store, Trap,
+    component::{HasSelf, Resource},
+  },
   wasmtime_wasi::{
     p2::bindings::sockets::{
+      instance_network::Host as InstanceNetworkHost,
       network::{ErrorCode as NetworkErrorCode, IpAddressFamily},
+      tcp::HostTcpSocket as TcpSocketHost,
       tcp_create_socket::Host as TcpCreateSocketHost,
     },
     sockets::WasiSocketsView,
@@ -238,7 +243,11 @@ async fn instances_have_independent_permissions() {
 
 #[tokio::test]
 async fn instances_have_independent_network_permissions() {
-  let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+  let first_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+  let second_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+
+  let first_address = first_listener.local_addr().unwrap();
+  let second_address = second_listener.local_addr().unwrap();
 
   let runtime = Runtime::new().unwrap();
 
@@ -246,27 +255,57 @@ async fn instances_have_independent_network_permissions() {
     .load_bytes(wat::parse_str("(component)").unwrap())
     .unwrap();
 
-  let mut granted = plugin
+  let mut first = plugin
     .instantiate()
-    .permissions(
-      Permissions::builder()
-        .tcp(listener.local_addr().unwrap())
-        .build(),
-    )
+    .permissions(Permissions::builder().tcp(first_address).build())
     .build()
     .await
     .unwrap();
 
-  let mut denied = plugin.instantiate().build().await.unwrap();
+  let mut second = plugin
+    .instantiate()
+    .permissions(Permissions::builder().tcp(second_address).build())
+    .build()
+    .await
+    .unwrap();
 
-  TcpCreateSocketHost::create_tcp_socket(
-    &mut granted.store_mut().data_mut().sockets(),
+  let mut unprivileged = plugin.instantiate().build().await.unwrap();
+
+  tcp_socket(first.store_mut());
+  tcp_socket(second.store_mut());
+
+  assert_tcp_create_denied(unprivileged.store_mut());
+
+  let first_denied = tcp_connect(first.store_mut(), second_address)
+    .await
+    .unwrap_err();
+
+  let second_denied = tcp_connect(second.store_mut(), first_address)
+    .await
+    .unwrap_err();
+
+  assert_eq!(first_denied, NetworkErrorCode::AccessDenied);
+  assert_eq!(second_denied, NetworkErrorCode::AccessDenied);
+}
+
+fn tcp_socket<T: WasiStateView>(store: &mut Store<T>) -> (u32, u32) {
+  let data = store.data_mut();
+
+  let network =
+    InstanceNetworkHost::instance_network(&mut data.sockets()).unwrap();
+
+  let socket = TcpCreateSocketHost::create_tcp_socket(
+    &mut data.sockets(),
     IpAddressFamily::Ipv4,
   )
   .unwrap();
 
+  (network.rep(), socket.rep())
+}
+
+fn assert_tcp_create_denied<T: WasiStateView>(store: &mut Store<T>) {
   let error = TcpCreateSocketHost::create_tcp_socket(
-    &mut denied.store_mut().data_mut().sockets(),
+    &mut store.data_mut().sockets(),
     IpAddressFamily::Ipv4,
   )
   .unwrap_err()
@@ -274,6 +313,46 @@ async fn instances_have_independent_network_permissions() {
   .unwrap();
 
   assert_eq!(error, NetworkErrorCode::AccessDenied);
+}
+
+async fn tcp_connect<T>(
+  store: &mut Store<T>,
+  address: SocketAddr,
+) -> std::result::Result<(), NetworkErrorCode>
+where
+  T: WasiStateView + 'static,
+{
+  let (network, socket) = tcp_socket(store);
+
+  TcpSocketHost::start_connect(
+    &mut store.data_mut().sockets(),
+    Resource::new_borrow(socket),
+    Resource::new_borrow(network),
+    address.into(),
+  )
+  .unwrap();
+
+  tokio::time::timeout(Duration::from_secs(1), async {
+    loop {
+      match TcpSocketHost::finish_connect(
+        &mut store.data_mut().sockets(),
+        Resource::new_borrow(socket),
+      ) {
+        Ok(_) => return Ok(()),
+        Err(source) => {
+          let error: NetworkErrorCode = source.downcast().unwrap();
+
+          if error != NetworkErrorCode::WouldBlock {
+            return Err(error);
+          }
+
+          tokio::task::yield_now().await;
+        }
+      }
+    }
+  })
+  .await
+  .expect("TCP connection did not finish")
 }
 
 #[tokio::test]

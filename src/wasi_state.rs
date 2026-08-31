@@ -224,17 +224,56 @@ mod tests {
     .expect("TCP connection did not finish")
   }
 
-  fn tcp_resources(state: &mut WasiState) -> (u32, u32) {
+  fn tcp_resources(
+    state: &mut WasiState,
+    family: IpAddressFamily,
+  ) -> (u32, u32) {
     let network =
       InstanceNetworkHost::instance_network(&mut state.sockets()).unwrap();
 
-    let socket = TcpCreateSocketHost::create_tcp_socket(
+    let socket =
+      TcpCreateSocketHost::create_tcp_socket(&mut state.sockets(), family)
+        .unwrap();
+
+    (network.rep(), socket.rep())
+  }
+
+  async fn listening_denied_for(family: IpAddressFamily, wildcard: &str) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+
+    let mut state = WasiState::builder()
+      .tcp(listener.local_addr().unwrap())
+      .build();
+
+    let (network, socket) = tcp_resources(&mut state, family);
+
+    let wildcard: SocketAddr = wildcard.parse().unwrap();
+
+    TcpSocketHost::start_bind(
       &mut state.sockets(),
-      IpAddressFamily::Ipv4,
+      Resource::new_borrow(socket),
+      Resource::new_borrow(network),
+      wildcard.into(),
+    )
+    .await
+    .unwrap();
+
+    TcpSocketHost::finish_bind(
+      &mut state.sockets(),
+      Resource::new_borrow(socket),
     )
     .unwrap();
 
-    (network.rep(), socket.rep())
+    let error = TcpSocketHost::start_listen(
+      &mut state.sockets(),
+      Resource::new_borrow(socket),
+    )
+    .await
+    .unwrap_err()
+    .downcast()
+    .unwrap();
+
+    assert_eq!(error, NetworkErrorCode::AccessDenied);
   }
 
   #[test]
@@ -510,7 +549,7 @@ mod tests {
     let permissions = Permissions::builder().tcp(address).build();
     let mut state = permissions.wasi_state().unwrap();
 
-    let (network, socket) = tcp_resources(&mut state);
+    let (network, socket) = tcp_resources(&mut state, IpAddressFamily::Ipv4);
 
     TcpSocketHost::start_connect(
       &mut state.sockets(),
@@ -531,7 +570,7 @@ mod tests {
       .tcp(listener.local_addr().unwrap())
       .build();
 
-    let (network, socket) = tcp_resources(&mut state);
+    let (network, socket) = tcp_resources(&mut state, IpAddressFamily::Ipv4);
 
     let error = TcpSocketHost::start_bind(
       &mut state.sockets(),
@@ -548,6 +587,13 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn tcp_address_denies_listening_after_wildcard_bind() {
+    listening_denied_for(IpAddressFamily::Ipv4, "0.0.0.0:0").await;
+
+    listening_denied_for(IpAddressFamily::Ipv6, "[::]:0").await;
+  }
+
+  #[tokio::test]
   async fn tcp_address_denies_other_connection() {
     let allowed = TcpListener::bind("127.0.0.1:0").unwrap();
     let denied = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -556,7 +602,7 @@ mod tests {
       .tcp(allowed.local_addr().unwrap())
       .build();
 
-    let (network, socket) = tcp_resources(&mut state);
+    let (network, socket) = tcp_resources(&mut state, IpAddressFamily::Ipv4);
 
     TcpSocketHost::start_connect(
       &mut state.sockets(),
