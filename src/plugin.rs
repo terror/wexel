@@ -29,7 +29,7 @@ impl Plugin {
     &self,
     state_factory: impl FnOnce(WasiState) -> T + Send + 'static,
   ) -> InstanceBuilder<T> {
-    InstanceBuilder::new(self.clone(), state_factory)
+    Instance::<T>::builder(self.clone(), Box::new(state_factory))
   }
 
   pub(crate) fn new(runtime: Runtime, component: Component) -> Self {

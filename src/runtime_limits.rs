@@ -1,14 +1,41 @@
 use super::*;
 
 /// Resource and execution limits applied to one plugin instance.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[allow(clippy::arbitrary_source_item_ordering)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, bon::Builder)]
+#[builder(
+  derive(Clone, Debug),
+  builder_type(doc {
+    /// Builds [`RuntimeLimits`].
+  }),
+  finish_fn(doc {
+    /// Builds the configured limits.
+  }),
+  start_fn(doc {
+    /// Creates a runtime limits builder with secure defaults.
+  })
+)]
 pub struct RuntimeLimits {
+  /// Sets the fuel available to one plugin store.
+  #[builder(default = RuntimeLimits::DEFAULT_FUEL)]
   pub(crate) fuel: u64,
+  /// Sets the maximum number of core instances in one plugin store.
+  #[builder(default = RuntimeLimits::DEFAULT_INSTANCES)]
   pub(crate) instances: usize,
+  /// Sets the maximum number of linear memories in one plugin store.
+  #[builder(default = RuntimeLimits::DEFAULT_MEMORIES)]
   pub(crate) memories: usize,
+  /// Sets the maximum size in bytes of each guest linear memory.
+  #[builder(default = RuntimeLimits::DEFAULT_MEMORY_SIZE)]
   pub(crate) memory_size: usize,
+  /// Sets the maximum number of elements in each guest table.
+  #[builder(default = RuntimeLimits::DEFAULT_TABLE_ELEMENTS)]
   pub(crate) table_elements: usize,
+  /// Sets the maximum number of tables in one plugin store.
+  #[builder(default = RuntimeLimits::DEFAULT_TABLES)]
   pub(crate) tables: usize,
+  /// Sets the wall-clock timeout for plugin instantiation and invocation.
+  #[builder(default = RuntimeLimits::DEFAULT_TIMEOUT)]
   pub(crate) timeout: Duration,
 }
 
@@ -20,11 +47,6 @@ impl RuntimeLimits {
   const DEFAULT_TABLES: usize = 1;
   const DEFAULT_TABLE_ELEMENTS: usize = 10_000;
   const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
-
-  /// Creates a runtime limits builder with secure defaults.
-  pub fn builder() -> RuntimeLimitsBuilder {
-    RuntimeLimitsBuilder::default()
-  }
 
   /// Returns the fuel budget for one plugin store.
   #[must_use]
@@ -108,60 +130,9 @@ impl Default for RuntimeLimits {
   }
 }
 
-/// Builds [`RuntimeLimits`].
-#[derive(Clone, Copy, Debug, Default)]
-#[must_use]
-pub struct RuntimeLimitsBuilder {
-  limits: RuntimeLimits,
-}
-
-impl RuntimeLimitsBuilder {
-  /// Builds the configured limits.
-  #[must_use]
-  pub fn build(self) -> RuntimeLimits {
-    self.limits
-  }
-
-  /// Sets the fuel available to one plugin store.
-  pub fn fuel(mut self, fuel: u64) -> Self {
-    self.limits.fuel = fuel;
-    self
-  }
-
-  /// Sets the maximum number of core instances in one plugin store.
-  pub fn instances(mut self, instances: usize) -> Self {
-    self.limits.instances = instances;
-    self
-  }
-
-  /// Sets the maximum number of linear memories in one plugin store.
-  pub fn memories(mut self, memories: usize) -> Self {
-    self.limits.memories = memories;
-    self
-  }
-
-  /// Sets the maximum size in bytes of each guest linear memory.
-  pub fn memory_size(mut self, memory_size: usize) -> Self {
-    self.limits.memory_size = memory_size;
-    self
-  }
-
-  /// Sets the maximum number of elements in each guest table.
-  pub fn table_elements(mut self, table_elements: usize) -> Self {
-    self.limits.table_elements = table_elements;
-    self
-  }
-
-  /// Sets the maximum number of tables in one plugin store.
-  pub fn tables(mut self, tables: usize) -> Self {
-    self.limits.tables = tables;
-    self
-  }
-
-  /// Sets the wall-clock timeout for plugin instantiation and invocation.
-  pub fn timeout(mut self, timeout: Duration) -> Self {
-    self.limits.timeout = timeout;
-    self
+impl Default for RuntimeLimitsBuilder {
+  fn default() -> Self {
+    RuntimeLimits::builder()
   }
 }
 

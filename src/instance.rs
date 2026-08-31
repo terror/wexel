@@ -1,5 +1,10 @@
 use super::*;
 
+type LinkerConfiguration<T> =
+  Box<dyn FnOnce(&mut Linker<T>) -> wasmtime::Result<()> + Send>;
+
+type StateFactory<T> = Box<dyn FnOnce(WasiState) -> T + Send>;
+
 /// A running plugin with isolated store state.
 ///
 /// Managed deadlines can preempt guest WebAssembly and yielding async host
@@ -11,6 +16,106 @@ pub struct Instance<T: 'static> {
   raw: WasmtimeInstance,
   store: Store<T>,
   timed_out: bool,
+}
+
+#[bon::bon]
+impl<T: WasiStateView + 'static> Instance<T> {
+  #[allow(clippy::arbitrary_source_item_ordering)]
+  #[builder(
+    builder_type(
+      name = InstanceBuilder,
+      vis = "pub",
+      doc {
+        /// Configures and creates one isolated plugin instance.
+        ///
+        /// Instantiation deadlines can preempt guest WebAssembly and yielding
+        /// async host calls. Application host functions are trusted and must
+        /// not block their executor thread.
+      }
+    ),
+    finish_fn(
+      name = build,
+      doc {
+        /// Builds and instantiates the plugin.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if capabilities cannot be prepared, host
+        /// interfaces cannot be linked, store configuration fails,
+        /// instantiation fails, or the instantiation timeout expires.
+        ///
+        /// # Panics
+        ///
+        /// Panics unless called within a Tokio runtime with its time driver
+        /// enabled.
+      }
+    ),
+    start_fn(name = builder, vis = "pub(crate)")
+  )]
+  async fn assemble(
+    #[builder(start_fn)] plugin: Plugin,
+    #[builder(start_fn)] state_factory: StateFactory<T>,
+    #[builder(field)] configurations: Vec<LinkerConfiguration<T>>,
+    /// Requests instance limits. Runtime limits remain hard ceilings.
+    limits: Option<RuntimeLimits>,
+    /// Grants effective capabilities to this plugin instance.
+    #[builder(default = Permissions::none())]
+    permissions: Permissions,
+    /// Requests a default operation timeout. The runtime timeout remains a hard
+    /// ceiling.
+    timeout: Option<Duration>,
+  ) -> Result<Self> {
+    let mut limits = limits.map_or(plugin.runtime.limits, |requested| {
+      plugin.runtime.limits.restrict(requested)
+    });
+
+    if let Some(requested) = timeout {
+      limits.timeout = limits.timeout.min(requested);
+    }
+
+    let timeout = limits.timeout;
+    let started = tokio::time::Instant::now();
+
+    let state = state_factory(permissions.wasi_state()?);
+    let mut linker = plugin.runtime.linker::<T>()?;
+
+    for configure in configurations {
+      configure(&mut linker)
+        .map_err(|source| Error::LinkerConfiguration { source })?;
+    }
+
+    let mut store = plugin.runtime.store_with_limits(state, limits)?;
+
+    store.epoch_deadline_async_yield_and_update(1);
+    store.set_epoch_deadline(1);
+
+    let elapsed = started.elapsed();
+
+    let Some(remaining) = timeout
+      .checked_sub(elapsed)
+      .filter(|remaining| !remaining.is_zero())
+    else {
+      return Err(Error::InstantiationTimeout { timeout });
+    };
+
+    let result = tokio::time::timeout(
+      remaining,
+      linker.instantiate_async(&mut store, plugin.component()),
+    )
+    .await;
+
+    let Ok(result) = result else {
+      return Err(Error::InstantiationTimeout { timeout });
+    };
+
+    if started.elapsed() >= timeout {
+      return Err(Error::InstantiationTimeout { timeout });
+    }
+
+    let instance = result.map_err(Error::instantiation)?;
+
+    Ok(Self::new(store, instance, limits))
+  }
 }
 
 impl<T: 'static> Instance<T> {
@@ -134,5 +239,18 @@ impl<T: 'static> Instance<T> {
   #[must_use]
   pub fn wasmtime_instance(&self) -> &WasmtimeInstance {
     &self.raw
+  }
+}
+
+impl<T: WasiStateView + 'static, S: instance_builder::State>
+  InstanceBuilder<T, S>
+{
+  /// Adds application-defined WIT host interfaces to the instance linker.
+  pub fn configure_linker(
+    mut self,
+    configure: impl FnOnce(&mut Linker<T>) -> wasmtime::Result<()> + Send + 'static,
+  ) -> Self {
+    self.configurations.push(Box::new(configure));
+    self
   }
 }

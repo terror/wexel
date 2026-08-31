@@ -14,18 +14,27 @@ struct DirectoryGrant {
 }
 
 /// Effective capabilities granted by the host to one plugin instance.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, bon::Builder)]
+#[builder(
+  derive(Clone),
+  builder_type(doc {
+    /// Builds effective plugin permissions.
+  }),
+  finish_fn(doc {
+    /// Builds the configured permissions.
+  }),
+  start_fn(doc {
+    /// Creates a permissions builder with no capabilities granted.
+  })
+)]
 pub struct Permissions {
+  #[builder(field)]
   directories: Vec<DirectoryGrant>,
+  #[builder(field)]
   environment: Vec<(String, String)>,
 }
 
 impl Permissions {
-  /// Creates a permissions builder with no capabilities granted.
-  pub fn builder() -> PermissionsBuilder {
-    PermissionsBuilder::default()
-  }
-
   /// Creates an empty permission set.
   #[must_use]
   pub fn none() -> Self {
@@ -54,30 +63,20 @@ impl Permissions {
   }
 }
 
-/// Builds effective plugin permissions.
-#[derive(Clone, Default)]
-#[must_use]
-pub struct PermissionsBuilder {
-  permissions: Permissions,
+impl Default for PermissionsBuilder {
+  fn default() -> Self {
+    Permissions::builder()
+  }
 }
 
-impl PermissionsBuilder {
-  /// Builds the configured permissions.
-  #[must_use]
-  pub fn build(self) -> Permissions {
-    self.permissions
-  }
-
+impl<S: permissions_builder::State> PermissionsBuilder<S> {
   /// Exposes one explicitly provided environment variable to the guest.
   pub fn env(
     mut self,
     key: impl Into<String>,
     value: impl Into<String>,
   ) -> Self {
-    self
-      .permissions
-      .environment
-      .push((key.into(), value.into()));
+    self.environment.push((key.into(), value.into()));
     self
   }
 
@@ -87,7 +86,7 @@ impl PermissionsBuilder {
     host_path: impl Into<PathBuf>,
     guest_path: impl Into<String>,
   ) -> Self {
-    self.permissions.directories.push(DirectoryGrant {
+    self.directories.push(DirectoryGrant {
       access: DirectoryAccess::ReadOnly,
       guest_path: guest_path.into(),
       host_path: host_path.into(),
@@ -101,7 +100,7 @@ impl PermissionsBuilder {
     host_path: impl Into<PathBuf>,
     guest_path: impl Into<String>,
   ) -> Self {
-    self.permissions.directories.push(DirectoryGrant {
+    self.directories.push(DirectoryGrant {
       access: DirectoryAccess::ReadWrite,
       guest_path: guest_path.into(),
       host_path: host_path.into(),

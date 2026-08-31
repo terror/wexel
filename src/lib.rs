@@ -17,15 +17,12 @@ use {
 
 pub use {
   error::Error,
-  instance::Instance,
-  instance_builder::InstanceBuilder,
+  instance::{Instance, InstanceBuilder},
   permissions::{Permissions, PermissionsBuilder},
   plugin::Plugin,
-  runtime::Runtime,
-  runtime_builder::RuntimeBuilder,
+  runtime::{Runtime, RuntimeBuilder},
   runtime_limits::{RuntimeLimits, RuntimeLimitsBuilder},
-  wasi_state::WasiState,
-  wasi_state_builder::WasiStateBuilder,
+  wasi_state::{WasiState, WasiStateBuilder},
   wasi_state_view::WasiStateView,
   wasmtime_wasi::{WasiCtxView, WasiView},
 };
@@ -46,14 +43,11 @@ macro_rules! assert_matches {
 
 mod error;
 mod instance;
-mod instance_builder;
 mod permissions;
 mod plugin;
 mod runtime;
-mod runtime_builder;
 mod runtime_limits;
 mod wasi_state;
-mod wasi_state_builder;
 mod wasi_state_view;
 
 pub type Result<T> = std::result::Result<T, Error>;
