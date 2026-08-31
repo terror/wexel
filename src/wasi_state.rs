@@ -26,8 +26,25 @@ impl WasiState {
   )]
   fn assemble(
     #[builder(field = WasiCtx::builder())] context: WasiCtxBuilder,
+    #[builder(field)] tcp_addresses: Vec<SocketAddr>,
   ) -> Self {
     let mut context = context;
+
+    if !tcp_addresses.is_empty() {
+      context
+        .allow_tcp(true)
+        .socket_addr_check(move |address, use_| {
+          let allowed = match use_ {
+            SocketAddrUse::TcpBind => {
+              address.ip().is_unspecified() && address.port() == 0
+            }
+            SocketAddrUse::TcpConnect => tcp_addresses.contains(&address),
+            _ => false,
+          };
+
+          Box::pin(std::future::ready(allowed))
+        });
+    }
 
     Self {
       context: context.build(),
@@ -134,12 +151,22 @@ impl<S: wasi_state_builder::State> WasiStateBuilder<S> {
   ) -> Result<Self> {
     self.mount_dir(host_path, guest_path, FsPerms::ReadWrite)
   }
+
+  /// Grants outbound TCP access to one exact IP address and port.
+  ///
+  /// This does not enable DNS, UDP, inbound connections, or listening sockets.
+  pub fn tcp(mut self, address: impl Into<SocketAddr>) -> Self {
+    self.tcp_addresses.push(address.into());
+    self
+  }
 }
 
 #[cfg(test)]
 mod tests {
   use {
     super::*,
+    std::net::TcpListener,
+    wasmtime::component::Resource,
     wasmtime_wasi::{
       cli::WasiCliView,
       filesystem::WasiFilesystemView,
@@ -158,13 +185,57 @@ mod tests {
           },
         },
         sockets::{
+          instance_network::Host as InstanceNetworkHost,
+          ip_name_lookup::Host as IpNameLookupHost,
           network::{ErrorCode as NetworkErrorCode, IpAddressFamily},
+          tcp::HostTcpSocket as TcpSocketHost,
           tcp_create_socket::Host as TcpCreateSocketHost,
+          udp_create_socket::Host as UdpCreateSocketHost,
         },
       },
       sockets::WasiSocketsView,
     },
   };
+
+  async fn finish_tcp_connect(
+    state: &mut WasiState,
+    socket: u32,
+  ) -> std::result::Result<(), NetworkErrorCode> {
+    tokio::time::timeout(Duration::from_secs(1), async {
+      loop {
+        match TcpSocketHost::finish_connect(
+          &mut state.sockets(),
+          Resource::new_borrow(socket),
+        ) {
+          Ok(_) => return Ok(()),
+          Err(source) => {
+            let error: NetworkErrorCode = source.downcast().unwrap();
+
+            if error != NetworkErrorCode::WouldBlock {
+              return Err(error);
+            }
+
+            tokio::task::yield_now().await;
+          }
+        }
+      }
+    })
+    .await
+    .expect("TCP connection did not finish")
+  }
+
+  fn tcp_resources(state: &mut WasiState) -> (u32, u32) {
+    let network =
+      InstanceNetworkHost::instance_network(&mut state.sockets()).unwrap();
+
+    let socket = TcpCreateSocketHost::create_tcp_socket(
+      &mut state.sockets(),
+      IpAddressFamily::Ipv4,
+    )
+    .unwrap();
+
+    (network.rep(), socket.rep())
+  }
 
   #[test]
   fn environment_is_explicitly_configured() {
@@ -429,6 +500,118 @@ mod tests {
     .unwrap();
 
     assert_eq!(error, NetworkErrorCode::AccessDenied);
+  }
+
+  #[tokio::test]
+  async fn tcp_address_allows_exact_connection() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+
+    let permissions = Permissions::builder().tcp(address).build();
+    let mut state = permissions.wasi_state().unwrap();
+
+    let (network, socket) = tcp_resources(&mut state);
+
+    TcpSocketHost::start_connect(
+      &mut state.sockets(),
+      Resource::new_borrow(socket),
+      Resource::new_borrow(network),
+      address.into(),
+    )
+    .unwrap();
+
+    finish_tcp_connect(&mut state, socket).await.unwrap();
+  }
+
+  #[tokio::test]
+  async fn tcp_address_denies_explicit_bind() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+
+    let mut state = WasiState::builder()
+      .tcp(listener.local_addr().unwrap())
+      .build();
+
+    let (network, socket) = tcp_resources(&mut state);
+
+    let error = TcpSocketHost::start_bind(
+      &mut state.sockets(),
+      Resource::new_borrow(socket),
+      Resource::new_borrow(network),
+      "127.0.0.1:0".parse::<SocketAddr>().unwrap().into(),
+    )
+    .await
+    .unwrap_err()
+    .downcast()
+    .unwrap();
+
+    assert_eq!(error, NetworkErrorCode::AccessDenied);
+  }
+
+  #[tokio::test]
+  async fn tcp_address_denies_other_connection() {
+    let allowed = TcpListener::bind("127.0.0.1:0").unwrap();
+    let denied = TcpListener::bind("127.0.0.1:0").unwrap();
+
+    let mut state = WasiState::builder()
+      .tcp(allowed.local_addr().unwrap())
+      .build();
+
+    let (network, socket) = tcp_resources(&mut state);
+
+    TcpSocketHost::start_connect(
+      &mut state.sockets(),
+      Resource::new_borrow(socket),
+      Resource::new_borrow(network),
+      denied.local_addr().unwrap().into(),
+    )
+    .unwrap();
+
+    let error = finish_tcp_connect(&mut state, socket).await.unwrap_err();
+
+    assert_eq!(error, NetworkErrorCode::AccessDenied);
+  }
+
+  #[tokio::test]
+  async fn tcp_address_does_not_enable_udp() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+
+    let mut state = WasiState::builder()
+      .tcp(listener.local_addr().unwrap())
+      .build();
+
+    let error = UdpCreateSocketHost::create_udp_socket(
+      &mut state.sockets(),
+      IpAddressFamily::Ipv4,
+    )
+    .await
+    .unwrap_err()
+    .downcast()
+    .unwrap();
+
+    assert_eq!(error, NetworkErrorCode::AccessDenied);
+  }
+
+  #[test]
+  fn tcp_address_does_not_enable_name_lookup() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+
+    let mut state = WasiState::builder()
+      .tcp(listener.local_addr().unwrap())
+      .build();
+
+    let network =
+      InstanceNetworkHost::instance_network(&mut state.sockets()).unwrap();
+
+    let error = IpNameLookupHost::resolve_addresses(
+      &mut state.sockets(),
+      Resource::new_borrow(network.rep()),
+      "example.com".into(),
+    )
+    .unwrap_err()
+    .downcast()
+    .unwrap();
+
+    assert_eq!(error, NetworkErrorCode::PermanentResolverFailure);
   }
 
   #[test]

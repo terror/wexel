@@ -1,6 +1,7 @@
 use {
   std::{
     fs, io,
+    net::SocketAddr,
     ops::AsyncFnOnce,
     path::{Path, PathBuf},
     thread,
@@ -12,7 +13,9 @@ use {
       Component, Instance as WasmtimeInstance, Linker, ResourceTable,
     },
   },
-  wasmtime_wasi::{FsPerms, WasiCtx, WasiCtxBuilder, p2},
+  wasmtime_wasi::{
+    FsPerms, WasiCtx, WasiCtxBuilder, p2, sockets::SocketAddrUse,
+  },
 };
 
 pub use {

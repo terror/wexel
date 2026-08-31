@@ -32,6 +32,8 @@ pub struct Permissions {
   directories: Vec<DirectoryGrant>,
   #[builder(field)]
   environment: Vec<(String, String)>,
+  #[builder(field)]
+  tcp_addresses: Vec<SocketAddr>,
 }
 
 impl Permissions {
@@ -39,6 +41,12 @@ impl Permissions {
   #[must_use]
   pub fn none() -> Self {
     Self::default()
+  }
+
+  /// Returns the exact socket addresses granted for outbound TCP connections.
+  #[must_use]
+  pub fn tcp_addresses(&self) -> &[SocketAddr] {
+    &self.tcp_addresses
   }
 
   pub(crate) fn wasi_state(&self) -> Result<WasiState> {
@@ -57,6 +65,10 @@ impl Permissions {
           builder.read_write_dir(&directory.host_path, &directory.guest_path)?
         }
       };
+    }
+
+    for address in &self.tcp_addresses {
+      builder = builder.tcp(*address);
     }
 
     Ok(builder.build())
@@ -91,6 +103,7 @@ impl<S: permissions_builder::State> PermissionsBuilder<S> {
       guest_path: guest_path.into(),
       host_path: host_path.into(),
     });
+
     self
   }
 
@@ -105,6 +118,29 @@ impl<S: permissions_builder::State> PermissionsBuilder<S> {
       guest_path: guest_path.into(),
       host_path: host_path.into(),
     });
+
     self
+  }
+
+  /// Grants outbound TCP access to one exact IP address and port.
+  ///
+  /// This does not enable DNS, UDP, inbound connections, or listening sockets.
+  pub fn tcp(mut self, address: impl Into<SocketAddr>) -> Self {
+    self.tcp_addresses.push(address.into());
+    self
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn tcp_addresses_are_inspectable() {
+    let address = "192.0.2.1:443".parse().unwrap();
+
+    let permissions = Permissions::builder().tcp(address).build();
+
+    assert_eq!(permissions.tcp_addresses(), &[address]);
   }
 }

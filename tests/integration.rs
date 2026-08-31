@@ -1,6 +1,7 @@
 use {
   std::{
     future::{Future, ready},
+    net::TcpListener,
     pin::Pin,
     sync::{
       Arc,
@@ -10,6 +11,13 @@ use {
     time::{Duration, Instant},
   },
   wasmtime::{Trap, component::HasSelf},
+  wasmtime_wasi::{
+    p2::bindings::sockets::{
+      network::{ErrorCode as NetworkErrorCode, IpAddressFamily},
+      tcp_create_socket::Host as TcpCreateSocketHost,
+    },
+    sockets::WasiSocketsView,
+  },
   wexel::{
     Error, Permissions, Runtime, RuntimeLimits, WasiCtxView, WasiState,
     WasiStateView, WasiView,
@@ -226,6 +234,46 @@ async fn instances_have_independent_permissions() {
     second_environment,
     (vec![("WEXEL_TEST".into(), "second".into())],)
   );
+}
+
+#[tokio::test]
+async fn instances_have_independent_network_permissions() {
+  let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+
+  let runtime = Runtime::new().unwrap();
+
+  let plugin = runtime
+    .load_bytes(wat::parse_str("(component)").unwrap())
+    .unwrap();
+
+  let mut granted = plugin
+    .instantiate()
+    .permissions(
+      Permissions::builder()
+        .tcp(listener.local_addr().unwrap())
+        .build(),
+    )
+    .build()
+    .await
+    .unwrap();
+
+  let mut denied = plugin.instantiate().build().await.unwrap();
+
+  TcpCreateSocketHost::create_tcp_socket(
+    &mut granted.store_mut().data_mut().sockets(),
+    IpAddressFamily::Ipv4,
+  )
+  .unwrap();
+
+  let error = TcpCreateSocketHost::create_tcp_socket(
+    &mut denied.store_mut().data_mut().sockets(),
+    IpAddressFamily::Ipv4,
+  )
+  .unwrap_err()
+  .downcast()
+  .unwrap();
+
+  assert_eq!(error, NetworkErrorCode::AccessDenied);
 }
 
 #[tokio::test]
