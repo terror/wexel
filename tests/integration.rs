@@ -16,6 +16,19 @@ use {
   },
 };
 
+macro_rules! assert_matches {
+  ($expression:expr, $( $pattern:pat_param )|+ $( if $guard:expr )? $(,)?) => {
+    match $expression {
+      $( $pattern )|+ $( if $guard )? => {}
+      left => panic!(
+        "assertion failed: (left ~= right)\n  left: `{:?}`\n right: `{}`",
+        left,
+        stringify!($($pattern)|+ $(if $guard)?)
+      ),
+    }
+  }
+}
+
 mod bindings {
   wasmtime::component::bindgen!({
     path: "tests/fixtures/answer.wit",
@@ -155,7 +168,7 @@ async fn fuel_exhaustion_interrupts_component() {
     .await
     .unwrap_err();
 
-  assert!(matches!(error, Error::FuelExhausted { .. }));
+  assert_matches!(error, Error::FuelExhausted { .. });
 }
 
 #[tokio::test]
@@ -226,7 +239,7 @@ async fn instantiation_fuel_exhaustion_is_structured() {
 
   let error = plugin.instantiate().build().await.err().unwrap();
 
-  assert!(matches!(error, Error::FuelExhausted { .. }));
+  assert_matches!(error, Error::FuelExhausted { .. });
 }
 
 #[tokio::test]
@@ -246,10 +259,10 @@ async fn instantiation_timeout_interrupts_component() {
 
   let error = plugin.instantiate().build().await.err().unwrap();
 
-  assert!(matches!(
+  assert_matches!(
     error,
     Error::InstantiationTimeout { timeout: actual } if actual == timeout
-  ));
+  );
 }
 
 #[tokio::test]
@@ -288,10 +301,10 @@ async fn invocation_timeout_cancels_pending_host_call() {
     .await
     .unwrap_err();
 
-  assert!(matches!(
+  assert_matches!(
     error,
     Error::InvocationTimeout { timeout: actual } if actual == timeout
-  ));
+  );
 
   assert!(cancelled.load(Ordering::SeqCst));
 }
@@ -328,20 +341,20 @@ async fn invocation_timeout_interrupts_component() {
     .await
     .unwrap_err();
 
-  assert!(matches!(
+  assert_matches!(
     error,
     Error::InvocationTimeout { timeout: actual } if actual == timeout
-  ));
+  );
 
   assert!(started.elapsed() < Duration::from_secs(2));
 
-  assert!(matches!(
+  assert_matches!(
     instance
       .invoke(async |_, _| Ok::<(), wasmtime::Error>(()))
       .await
       .unwrap_err(),
     Error::InstanceUnavailable
-  ));
+  );
 }
 
 #[tokio::test]
@@ -376,12 +389,12 @@ async fn memory_count_rejects_component() {
 
   let error = plugin.instantiate().build().await.err().unwrap();
 
-  assert!(matches!(
+  assert_matches!(
     error,
     Error::Instantiation { source }
       if source.to_string()
         == "resource limit exceeded: memory count too high at 2"
-  ));
+  );
 }
 
 #[tokio::test]
@@ -510,13 +523,13 @@ async fn trap_is_structured() {
     .await
     .unwrap_err();
 
-  assert!(matches!(
+  assert_matches!(
     error,
     Error::Trap {
       trap: Trap::UnreachableCodeReached,
       ..
     }
-  ));
+  );
 }
 
 #[tokio::test]
